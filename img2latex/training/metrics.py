@@ -3,15 +3,46 @@ Evaluation metrics for the image-to-LaTeX model.
 """
 
 import collections
+import json
 import math
-from typing import Dict, List, Tuple
+import os
+from collections import Counter
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+from scipy.stats import entropy
 
+from img2latex.data.tokenizer import LaTeXTokenizer
 from img2latex.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _detach_to_cpu(
+    tensor_or_list: Union[torch.Tensor, List, Any],
+) -> Union[torch.Tensor, List, Any]:
+    """
+    Move a tensor to CPU or process a list of tensors.
+
+    Args:
+        tensor_or_list: Either a tensor, a list (possibly containing tensors), or other data types
+
+    Returns:
+        The same tensor or list with all tensors detached and moved to CPU
+    """
+    if isinstance(tensor_or_list, torch.Tensor):
+        return tensor_or_list.detach().cpu()
+    elif isinstance(tensor_or_list, list):
+        return [
+            t.detach().cpu().tolist()
+            if isinstance(t, torch.Tensor)
+            else _detach_to_cpu(t)
+            if isinstance(t, list)
+            else t
+            for t in tensor_or_list
+        ]
+    return tensor_or_list
 
 
 def levenshtein_distance(sequence_one: List[int], sequence_two: List[int]) -> float:
@@ -158,14 +189,9 @@ def calculate_metrics(
     Returns:
         Dictionary of metrics
     """
-    # Check if any element in the lists is a tensor and convert it
-    predictions = [
-        p.detach().cpu().tolist() if isinstance(p, torch.Tensor) else p
-        for p in predictions
-    ]
-    targets = [
-        t.detach().cpu().tolist() if isinstance(t, torch.Tensor) else t for t in targets
-    ]
+    # Ensure predictions and targets are properly detached and on CPU
+    predictions = _detach_to_cpu(predictions)
+    targets = _detach_to_cpu(targets)
 
     # Check that predictions and targets have the same number of samples
     assert len(predictions) == len(targets), (
@@ -208,11 +234,9 @@ def masked_accuracy(
     Returns:
         Tuple of (accuracy, number of tokens)
     """
-    # Move tensors to CPU if they are on another device
-    if predictions.device.type != "cpu":
-        predictions = predictions.detach().cpu()
-    if targets.device.type != "cpu":
-        targets = targets.detach().cpu()
+    # Ensure predictions and targets are properly detached and on CPU
+    predictions = _detach_to_cpu(predictions)
+    targets = _detach_to_cpu(targets)
 
     # Get the predicted tokens
     pred_tokens = torch.argmax(predictions, dim=-1)
@@ -230,3 +254,363 @@ def masked_accuracy(
 
     accuracy = correct / total
     return accuracy, total
+
+
+def analyze_token_distribution(
+    predictions: List[List[int]],
+    targets: List[List[int]],
+    tokenizer: LaTeXTokenizer,
+    top_k: int = 10,
+) -> Dict[str, Any]:
+    """
+    Analyze the distribution of tokens in predictions and targets.
+
+    Args:
+        predictions: List of predicted token sequences
+        targets: List of target token sequences
+        tokenizer: LaTeX tokenizer
+        top_k: Number of top tokens to include
+
+    Returns:
+        Dictionary with token distribution analysis
+    """
+    # Ensure predictions and targets are properly detached and on CPU
+    predictions = _detach_to_cpu(predictions)
+    targets = _detach_to_cpu(targets)
+
+    # Flatten token lists
+    pred_tokens_flat = [token for seq in predictions for token in seq]
+    target_tokens_flat = [token for seq in targets for token in seq]
+
+    # Count token frequencies
+    pred_counter = Counter(pred_tokens_flat)
+    target_counter = Counter(target_tokens_flat)
+
+    # Get top-k most common tokens
+    pred_most_common = pred_counter.most_common(top_k)
+    target_most_common = target_counter.most_common(top_k)
+
+    # Calculate entropy of distributions
+    pred_probs = np.array(
+        [count / len(pred_tokens_flat) for _, count in pred_counter.items()]
+    )
+    target_probs = np.array(
+        [count / len(target_tokens_flat) for _, count in target_counter.items()]
+    )
+
+    pred_entropy = entropy(pred_probs) if len(pred_probs) > 0 else 0
+    target_entropy = entropy(target_probs) if len(target_probs) > 0 else 0
+
+    # Convert token IDs to readable tokens
+    pred_most_common_readable = [
+        (tokenizer.id_to_token.get(token_id, "<UNK>"), count)
+        for token_id, count in pred_most_common
+    ]
+    target_most_common_readable = [
+        (tokenizer.id_to_token.get(token_id, "<UNK>"), count)
+        for token_id, count in target_most_common
+    ]
+
+    # Check for repetition issues
+    repetition_factor = (
+        pred_most_common[0][1] / len(pred_tokens_flat) if pred_most_common else 0
+    )
+
+    # Calculate diversity ratio (unique tokens / total tokens)
+    pred_diversity = (
+        len(pred_counter) / len(pred_tokens_flat) if pred_tokens_flat else 0
+    )
+    target_diversity = (
+        len(target_counter) / len(target_tokens_flat) if target_tokens_flat else 0
+    )
+
+    return {
+        "predictions": {
+            "top_tokens": pred_most_common_readable,
+            "entropy": pred_entropy,
+            "diversity": pred_diversity,
+            "repetition_factor": repetition_factor,
+        },
+        "targets": {
+            "top_tokens": target_most_common_readable,
+            "entropy": target_entropy,
+            "diversity": target_diversity,
+        },
+    }
+
+
+def sample_predictions_and_targets(
+    outputs: torch.Tensor,
+    targets: torch.Tensor,
+    tokenizer: LaTeXTokenizer,
+    num_samples: int = 2,
+    confidence_threshold: float = 0.5,
+) -> Dict[str, List]:
+    """
+    Sample and decode predictions and targets for visualization.
+
+    Args:
+        outputs: Model outputs tensor (batch_size, seq_length, vocab_size)
+        targets: Target tensor (batch_size, seq_length)
+        tokenizer: LaTeX tokenizer
+        num_samples: Number of samples to include
+        confidence_threshold: Threshold for highlighting low confidence predictions
+
+    Returns:
+        Dictionary with sampled predictions and targets
+    """
+    # Ensure outputs and targets are properly detached and on CPU
+    outputs_cpu = _detach_to_cpu(outputs)
+    targets_cpu = _detach_to_cpu(targets)
+
+    batch_size, seq_length, vocab_size = outputs_cpu.shape
+
+    # Apply softmax to get probabilities
+    probs = torch.nn.functional.softmax(outputs_cpu, dim=-1)
+
+    # Get predicted tokens and their probabilities
+    pred_tokens = torch.argmax(probs, dim=-1)
+    pred_probs = torch.max(probs, dim=-1)[0]
+
+    # Convert to numpy for easier handling
+    pred_tokens_np = pred_tokens.numpy()
+    pred_probs_np = pred_probs.numpy()
+    targets_np = targets_cpu.numpy()
+
+    # Clean up intermediate tensors
+    del outputs_cpu, targets_cpu, probs, pred_tokens, pred_probs
+
+    samples = []
+
+    # Sample min(batch_size, num_samples) examples
+    for i in range(min(batch_size, num_samples)):
+        # Get masks for non-padding tokens
+        pred_mask = pred_tokens_np[i] != tokenizer.pad_token_id
+        target_mask = targets_np[i] != tokenizer.pad_token_id
+
+        # Get non-padding tokens
+        pred_seq = pred_tokens_np[i][pred_mask]
+        target_seq = targets_np[i][target_mask]
+
+        # Get corresponding probabilities
+        pred_confidences = pred_probs_np[i][pred_mask]
+
+        # Decode to readable LaTeX
+        pred_latex = tokenizer.decode(pred_seq.tolist())
+        target_latex = tokenizer.decode(target_seq.tolist())
+
+        # Find low-confidence tokens
+        low_confidence_indices = np.where(pred_confidences < confidence_threshold)[0]
+        low_confidence_tokens = []
+
+        for idx in low_confidence_indices:
+            if idx < len(pred_seq):
+                token_id = pred_seq[idx]
+                token = tokenizer.id_to_token.get(token_id, "<UNK>")
+                confidence = pred_confidences[idx]
+                low_confidence_tokens.append((token, float(confidence)))
+
+        # Add sample to list
+        samples.append(
+            {
+                "prediction": pred_latex,
+                "target": target_latex,
+                "low_confidence_tokens": low_confidence_tokens,
+                "token_by_token": [
+                    {
+                        "pred_token": tokenizer.id_to_token.get(t, "<UNK>"),
+                        "confidence": float(c),
+                        "is_correct": bool(t == target_seq[i])
+                        if i < len(target_seq)
+                        else None,
+                    }
+                    for i, (t, c) in enumerate(zip(pred_seq, pred_confidences))
+                    if i < 20  # Limit to first 20 tokens for readability
+                ],
+            }
+        )
+
+    return {"samples": samples}
+
+
+def save_enhanced_metrics(
+    metrics: Dict[str, Any], experiment_name: str, metrics_dir: str, epoch: int
+) -> None:
+    """
+    Save enhanced metrics to a JSON file.
+
+    Args:
+        metrics: Dictionary of metrics
+        experiment_name: Name of the experiment
+        metrics_dir: Directory to save metrics
+        epoch: Current epoch
+    """
+    # Create metrics directory if it doesn't exist
+    os.makedirs(metrics_dir, exist_ok=True)
+
+    # Create filename
+    filename = f"{experiment_name}_enhanced_metrics_epoch_{epoch}.json"
+    filepath = os.path.join(metrics_dir, filename)
+
+    # Convert numpy values to Python types for JSON serialization
+    def convert_numpy(obj):
+        if obj is None:
+            return None
+        elif isinstance(obj, (np.integer, np.int32, np.int64)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float32, np.float64)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, dict):
+            return {k: convert_numpy(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_numpy(i) for i in obj]
+        elif isinstance(obj, torch.Tensor):
+            return convert_numpy(obj.detach().cpu().numpy())
+        elif isinstance(obj, np.bool_) or isinstance(obj, bool):
+            return bool(obj)
+        else:
+            return obj
+
+    metrics_converted = convert_numpy(metrics)
+
+    # Save to file
+    with open(filepath, "w") as f:
+        json.dump(metrics_converted, f, indent=2)
+
+    logger.info(f"Enhanced metrics saved to {filepath}")
+
+
+def log_enhanced_metrics_summary(metrics: Dict[str, Any]) -> None:
+    """
+    Log a summary of enhanced metrics.
+
+    Args:
+        metrics: Dictionary of metrics
+    """
+    # Extract token distribution metrics
+    token_dist = metrics.get("token_distribution", {})
+    pred_info = token_dist.get("predictions", {})
+
+    # Log summary information
+    logger.info("Enhanced Metrics Summary:")
+
+    # Token distribution summary
+    if "repetition_factor" in pred_info:
+        repetition_factor = pred_info["repetition_factor"]
+        if repetition_factor > 0.5:
+            logger.warning(
+                f"High token repetition detected (factor: {repetition_factor:.2f}). "
+                "The model may be stuck predicting the same tokens."
+            )
+
+    if "diversity" in pred_info:
+        diversity = pred_info["diversity"]
+        logger.info(f"Prediction diversity: {diversity:.4f}")
+
+    # Sample summary
+    samples = metrics.get("samples", {}).get("samples", [])
+    if samples:
+        logger.info(f"Sample predictions analyzed: {len(samples)}")
+
+        # Count samples with low confidence tokens
+        low_conf_count = sum(1 for s in samples if s.get("low_confidence_tokens"))
+        if low_conf_count > 0:
+            logger.warning(
+                f"{low_conf_count}/{len(samples)} samples have low confidence predictions."
+            )
+
+
+def compute_all_metrics(
+    outputs: torch.Tensor,
+    targets: torch.Tensor,
+    all_predictions: List[List[int]],
+    all_targets: List[List[int]],
+    tokenizer: LaTeXTokenizer,
+    num_samples: int = 2,
+    confidence_threshold: float = 0.5,
+    experiment_name: Optional[str] = None,
+    metrics_dir: Optional[str] = None,
+    save_to_file: bool = False,
+    epoch: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Compute all metrics for model evaluation in a single call.
+
+    Args:
+        outputs: Model outputs tensor (batch_size, seq_length, vocab_size)
+        targets: Target tensor (batch_size, seq_length)
+        all_predictions: List of all predicted token sequences
+        all_targets: List of all target token sequences
+        tokenizer: LaTeX tokenizer
+        num_samples: Number of samples to include in visualization
+        confidence_threshold: Threshold for highlighting low confidence predictions
+        experiment_name: Name of the experiment (required if save_to_file=True)
+        metrics_dir: Directory to save metrics (required if save_to_file=True)
+        save_to_file: Whether to save metrics to a file
+        epoch: Current epoch (required if save_to_file=True)
+
+    Returns:
+        Dictionary of all metrics combined
+    """
+    # 1. Detach tensors to CPU once to avoid redundant operations
+    outputs_cpu = _detach_to_cpu(outputs)
+    targets_cpu = _detach_to_cpu(targets)
+    all_predictions_cpu = _detach_to_cpu(all_predictions)
+    all_targets_cpu = _detach_to_cpu(all_targets)
+
+    # 2. Calculate basic accuracy
+    accuracy, num_tokens = masked_accuracy(
+        outputs_cpu, targets_cpu, tokenizer.pad_token_id
+    )
+
+    # 3. Calculate BLEU and Levenshtein metrics
+    basic_metrics = calculate_metrics(all_predictions_cpu, all_targets_cpu)
+
+    # 4. Analyze token distribution
+    token_distribution = analyze_token_distribution(
+        all_predictions_cpu, all_targets_cpu, tokenizer
+    )
+
+    # 5. Sample predictions and targets for visualization
+    sample_data = sample_predictions_and_targets(
+        outputs_cpu, targets_cpu, tokenizer, num_samples, confidence_threshold
+    )
+
+    # 6. Combine all metrics
+    combined_metrics = {
+        "accuracy": accuracy,
+        "num_tokens": num_tokens,
+        "bleu": basic_metrics["bleu"],
+        "levenshtein": basic_metrics["levenshtein"],
+        "batch_size": basic_metrics["batch_size"],
+        "token_distribution": token_distribution,
+        "samples": sample_data["samples"],
+    }
+
+    # Add epoch if provided
+    if epoch is not None:
+        combined_metrics["epoch"] = epoch
+
+    # 7. Save to file if requested
+    if save_to_file:
+        # Validate required parameters are present
+        if not all([experiment_name, metrics_dir, epoch is not None]):
+            logger.warning(
+                "Cannot save metrics to file: missing required parameters "
+                "(experiment_name, metrics_dir, or epoch)"
+            )
+        else:
+            save_enhanced_metrics(combined_metrics, experiment_name, metrics_dir, epoch)
+
+    # 8. Always log a summary
+    log_enhanced_metrics_summary(combined_metrics)
+
+    # 9. Clean up GPU memory
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    elif hasattr(torch, "mps") and torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+
+    return combined_metrics

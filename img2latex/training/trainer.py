@@ -13,8 +13,7 @@ from tqdm import tqdm
 
 from img2latex.data.tokenizer import LaTeXTokenizer
 from img2latex.data.utils import prepare_batch
-from img2latex.training.enhanced_metrics import generate_enhanced_metrics
-from img2latex.training.metrics import calculate_metrics, masked_accuracy
+from img2latex.training.metrics import compute_all_metrics, masked_accuracy
 from img2latex.utils.logging import get_logger
 from img2latex.utils.mps_utils import set_device
 from img2latex.utils.path_utils import path_manager
@@ -309,6 +308,7 @@ class Trainer:
 
             # Get the loss value before optimization (multiply by accumulation steps to get the actual loss)
             loss_value = loss.item() * self.accumulation_steps
+            # Use masked_accuracy for simple training metrics calculation
             acc_value, num_tokens_value = masked_accuracy(
                 outputs, targets_shifted, self.tokenizer.pad_token_id
             )
@@ -474,13 +474,15 @@ class Trainer:
                         outputs.reshape(-1, vocab_size), targets_shifted.reshape(-1)
                     )
 
-                    # Calculate accuracy
+                    # Store values before freeing memory
+                    loss_value = loss.item()
+
+                    # Calculate accuracy using only masked_accuracy
+                    from img2latex.training.metrics import masked_accuracy
+
                     acc, num_tokens = masked_accuracy(
                         outputs, targets_shifted, self.tokenizer.pad_token_id
                     )
-
-                    # Store values before freeing memory
-                    loss_value = loss.item()
                     acc_value = acc
 
                     # Update counters
@@ -572,27 +574,23 @@ class Trainer:
                 "step": self.global_step,
             }
 
-        # Calculate BLEU and Levenshtein metrics
+        # Calculate additional metrics if we have predictions
         if all_predictions:
             try:
-                extra_metrics = calculate_metrics(all_predictions, all_targets)
-                metrics.update(
-                    {
-                        "val_bleu": extra_metrics["bleu"],
-                        "val_levenshtein": extra_metrics["levenshtein"],
-                    }
-                )
+                # Get metrics directory
+                metrics_dir = path_manager.get_metrics_dir(self.experiment_name)
 
-                # Generate enhanced metrics if we have stored a batch
-                if (
+                # Determine if we should generate enhanced metrics visualization
+                should_generate_enhanced = (
                     enhanced_metrics_batch is not None
                     and enhanced_metrics_targets is not None
-                    # Only generate enhanced metrics every 5 epochs or when validation improves
                     and (
                         self.current_epoch % 5 == 0
                         or val_loss / val_samples < self.best_val_loss
                     )
-                ):
+                )
+
+                if should_generate_enhanced:
                     try:
                         # Do a memory cleanup before generating metrics
                         if self.device.type == "mps":
@@ -600,28 +598,27 @@ class Trainer:
 
                             empty_cache(force_gc=True)
 
-                        # Get metrics directory directly from path_manager
-                        metrics_dir = path_manager.get_metrics_dir(self.experiment_name)
-
-                        # Generate enhanced metrics with reduced num_samples
-                        generate_enhanced_metrics(
-                            enhanced_metrics_batch,
-                            enhanced_metrics_targets,
-                            all_predictions,
-                            all_targets,
-                            self.tokenizer,
-                            num_samples=min(
-                                2, len(all_predictions)
-                            ),  # Reduced from 5 to 2 samples
+                        # Compute all metrics in one call
+                        enhanced_metrics = compute_all_metrics(
+                            outputs=enhanced_metrics_batch,
+                            targets=enhanced_metrics_targets,
+                            all_predictions=all_predictions,
+                            all_targets=all_targets,
+                            tokenizer=self.tokenizer,
+                            num_samples=min(2, len(all_predictions)),
                             experiment_name=self.experiment_name,
                             metrics_dir=metrics_dir,
                             epoch=self.current_epoch,
                             save_to_file=True,
                         )
 
-                        # Immediate cleanup after sampling
-                        if self.device.type == "mps":
-                            torch.mps.empty_cache()
+                        # Update metrics with calculated values from the unified metrics
+                        metrics.update(
+                            {
+                                "val_bleu": enhanced_metrics["bleu"],
+                                "val_levenshtein": enhanced_metrics["levenshtein"],
+                            }
+                        )
 
                     except Exception as e:
                         logger.error(f"Error generating enhanced metrics: {e}")
@@ -634,6 +631,23 @@ class Trainer:
                             from img2latex.utils.mps_utils import deep_clean_memory
 
                             deep_clean_memory()
+                else:
+                    # Just compute basic metrics without enhanced visualization
+                    basic_metrics = compute_all_metrics(
+                        outputs=None,  # Skip tensor-based metrics
+                        targets=None,  # Skip tensor-based metrics
+                        all_predictions=all_predictions,
+                        all_targets=all_targets,
+                        tokenizer=self.tokenizer,
+                        save_to_file=False,  # Don't save when not doing enhanced metrics
+                    )
+                    metrics.update(
+                        {
+                            "val_bleu": basic_metrics["bleu"],
+                            "val_levenshtein": basic_metrics["levenshtein"],
+                        }
+                    )
+
             except Exception as e:
                 logger.error(f"Error calculating additional metrics: {e}")
                 metrics.update(
