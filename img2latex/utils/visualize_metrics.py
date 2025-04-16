@@ -2,19 +2,21 @@
 Script to visualize enhanced metrics from training.
 """
 
-import argparse
 import glob
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import matplotlib.pyplot as plt
+import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
 console = Console()
+
+app = typer.Typer(help="Visualize enhanced metrics from training")
 
 
 def load_metrics_files(metrics_dir: str, experiment_name: str) -> List[Dict[str, Any]]:
@@ -163,7 +165,7 @@ def print_token_distribution(metrics: Dict[str, Any]) -> None:
 
 
 def plot_metrics_over_time(
-    metrics_list: List[Dict[str, Any]], output_dir: str = None
+    metrics_list: List[Dict[str, Any]], output_dir: Optional[str] = None
 ) -> None:
     """
     Plot metrics trends over epochs.
@@ -228,54 +230,56 @@ def plot_metrics_over_time(
     plt.show()
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Visualize enhanced metrics from training"
-    )
-    parser.add_argument(
-        "--metrics_dir", required=True, help="Path to metrics directory"
-    )
-    parser.add_argument("--experiment", required=True, help="Experiment name")
-    parser.add_argument(
-        "--epoch", type=int, help="Specific epoch to visualize (default: latest)"
-    )
-    parser.add_argument("--output_dir", help="Directory to save plots")
-    parser.add_argument(
-        "--plot_trends", action="store_true", help="Plot metrics trends over epochs"
-    )
-
-    args = parser.parse_args()
-
+@app.command()
+def visualize_metrics(
+    metrics_dir: str = typer.Argument(..., help="Path to metrics directory"),
+    experiment: str = typer.Argument(..., help="Experiment name"),
+    epoch: Optional[int] = typer.Option(
+        None, help="Specific epoch to visualize (default: latest)"
+    ),
+    output_dir: Optional[str] = typer.Option(None, help="Directory to save plots"),
+    plot_trends: bool = typer.Option(False, help="Plot metrics trends over epochs"),
+) -> None:
+    """
+    Visualize enhanced metrics from training.
+    """
     # Load metrics files
-    metrics_list = load_metrics_files(args.metrics_dir, args.experiment)
+    metrics_list = load_metrics_files(metrics_dir, experiment)
 
     if not metrics_list:
-        console.print("[red]No metrics files found![/red]")
+        console.print(f"[red]No metrics found for experiment {experiment}[/red]")
         return
 
-    console.print(f"[green]Loaded {len(metrics_list)} metrics files[/green]")
+    # If epoch is specified, find metrics for that epoch
+    if epoch is not None:
+        metrics = None
+        for m in metrics_list:
+            if m.get("epoch") == epoch:
+                metrics = m
+                break
 
-    # If epoch is specified, show details for that epoch
-    if args.epoch is not None:
-        metrics = next((m for m in metrics_list if m.get("epoch") == args.epoch), None)
-        if not metrics:
-            console.print(f"[red]No metrics found for epoch {args.epoch}[/red]")
+        if metrics is None:
+            console.print(f"[red]No metrics found for epoch {epoch}[/red]")
+            console.print(
+                f"[yellow]Available epochs: {[m.get('epoch') for m in metrics_list]}[/yellow]"
+            )
             return
     else:
-        # Use the latest epoch
+        # Use latest epoch
         metrics = metrics_list[-1]
-        console.print(f"[green]Using latest epoch: {metrics.get('epoch')}[/green]")
+        console.print(
+            f"[green]Showing metrics for epoch {metrics.get('epoch')}[/green]"
+        )
 
-    # Print sample predictions
+    # Display metrics
     print_prediction_samples(metrics)
-
-    # Print token distribution
     print_token_distribution(metrics)
 
     # Plot trends if requested
-    if args.plot_trends:
-        plot_metrics_over_time(metrics_list, args.output_dir)
+    if plot_trends:
+        console.print("[green]Plotting metrics trends...[/green]")
+        plot_metrics_over_time(metrics_list, output_dir)
 
 
 if __name__ == "__main__":
-    main()
+    app()

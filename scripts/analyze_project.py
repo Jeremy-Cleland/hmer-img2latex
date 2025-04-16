@@ -12,7 +12,7 @@ Features:
 - Check model config consistency
 """
 
-import argparse
+import importlib.util
 import json
 import subprocess
 import sys
@@ -28,10 +28,9 @@ from utils import ensure_output_dir
 
 # Suppress specific warnings if needed (e.g., from libraries)
 # warnings.filterwarnings("ignore", category=SomeWarningCategory)
-try:
-    from img2latex.data.tokenizer import LaTeXTokenizer
-    from img2latex.utils.logging import get_logger
-except ImportError:
+
+# Check if required project modules are available
+if not importlib.util.find_spec("img2latex"):
     print("Error: Could not import project modules.", file=sys.stderr)
     print(
         "Please ensure this script is run from the project root directory",
@@ -39,6 +38,9 @@ except ImportError:
     )
     print("or that the 'img2latex' package is in the Python path.", file=sys.stderr)
     sys.exit(1)
+
+# Import modules after availability check
+from img2latex.utils.logging import get_logger
 
 # Setup basic logging for the script itself
 logger = get_logger(__name__.split(".")[-1], log_level="INFO")
@@ -560,20 +562,18 @@ def plot_hyperparameter_comparison(
             plt.close()
 
 
+@app.command()
 def analyze_project(
-    config_path: str,
-    base_dir: str = ".",
-    output_dir: str = "outputs/project_analysis",
-    detailed: bool = False,
+    config_path: str = typer.Argument(..., help="Path to the YAML config file"),
+    base_dir: str = typer.Option(".", help="Base directory for the project"),
+    output_dir: str = typer.Option(
+        "outputs/project_analysis", help="Directory to save analysis results"
+    ),
+    detailed: bool = typer.Option(
+        False, help="Perform detailed analysis (Git comparison, hyperparameter sweep)"
+    ),
 ) -> None:
-    """Analyze the img2latex project configuration and status.
-
-    Args:
-        config_path: Path to the YAML config file
-        base_dir: Base directory for the project
-        output_dir: Directory to save analysis results
-        detailed: Whether to perform detailed analysis
-    """
+    """Analyze the img2latex project configuration and status."""
     # Ensure output directory exists
     output_path = ensure_output_dir(output_dir, "project")
 
@@ -756,31 +756,5 @@ def analyze_project(
     )
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Analyze the img2latex project configuration and status"
-    )
-    parser.add_argument(
-        "--config-path", required=True, help="Path to the YAML config file"
-    )
-    parser.add_argument(
-        "--base-dir", default=".", help="Base directory for the project"
-    )
-    parser.add_argument(
-        "--output-dir",
-        default="outputs/project_analysis",
-        help="Directory to save analysis results",
-    )
-    parser.add_argument(
-        "--detailed",
-        action="store_true",
-        help="Perform detailed analysis (Git comparison, hyperparameter sweep)",
-    )
-
-    args = parser.parse_args()
-
-    analyze_project(args.config_path, args.base_dir, args.output_dir, args.detailed)
-
-
 if __name__ == "__main__":
-    main()
+    app()

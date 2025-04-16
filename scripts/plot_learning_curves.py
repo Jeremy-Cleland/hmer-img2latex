@@ -8,14 +8,17 @@ Features:
 - Save figures to output directory
 """
 
-import argparse
 import json
 from pathlib import Path
 from typing import List, Optional, Union
 
 import matplotlib.pyplot as plt
 import pandas as pd
+import typer
 from utils import ensure_output_dir
+
+# Create Typer app
+app = typer.Typer(help="Plot learning curves from training metrics")
 
 
 def load_metrics_data(file_path: Union[str, Path]) -> pd.DataFrame:
@@ -145,18 +148,19 @@ def plot_learning_curves(
             )
 
 
+@app.command()
 def plot_learning_curves_from_file(
-    metrics_file: str,
-    output_dir: str = "outputs/learning_curves",
-    metrics: Optional[List[str]] = None,
+    metrics_file: str = typer.Argument(
+        ..., help="Path to the metrics file (CSV or JSON)"
+    ),
+    output_dir: str = typer.Option(
+        "outputs/learning_curves", help="Directory to save the output plots"
+    ),
+    metrics: Optional[List[str]] = typer.Option(
+        None, help="List of metrics to plot (default: all metrics in the file)"
+    ),
 ) -> None:
-    """Plot learning curves from a metrics file.
-
-    Args:
-        metrics_file: Path to the metrics file (CSV or JSON)
-        output_dir: Directory to save the output plots
-        metrics: List of metrics to plot. If None, plots all available metrics
-    """
+    """Plot learning curves from a metrics file."""
     # Ensure output directory exists
     output_path = ensure_output_dir(output_dir, "curves")
 
@@ -175,29 +179,5 @@ def plot_learning_curves_from_file(
         print(f"Error plotting learning curves: {e}")
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Plot learning curves from training metrics"
-    )
-    parser.add_argument(
-        "--metrics-file", required=True, help="Path to the metrics file (CSV or JSON)"
-    )
-    parser.add_argument(
-        "--output-dir",
-        default="outputs/learning_curves",
-        help="Directory to save the output plots",
-    )
-    parser.add_argument(
-        "--metrics",
-        nargs="+",
-        default=None,
-        help="List of metrics to plot (default: all metrics in the file)",
-    )
-
-    args = parser.parse_args()
-
-    plot_learning_curves_from_file(args.metrics_file, args.output_dir, args.metrics)
-
-
 if __name__ == "__main__":
-    main()
+    app()
