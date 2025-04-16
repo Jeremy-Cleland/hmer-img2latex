@@ -29,21 +29,21 @@ def resize_maintain_aspect(img: Image.Image, target_height: int) -> Image.Image:
         Resized PIL Image with exactly target_height height
     """
     width, height = img.size
-    
+
     # Ensure we're resizing to the exact target height
     if height != target_height:
         aspect_ratio = width / height
         new_width = int(target_height * aspect_ratio)
-        
+
         # Use LANCZOS for high quality resizing
         try:
             resample = Image.Resampling.LANCZOS
         except AttributeError:
             # For older versions of PIL
             resample = Image.LANCZOS
-        
+
         img = img.resize((new_width, target_height), resample)
-    
+
     return img
 
 
@@ -130,27 +130,31 @@ def load_image(
 
         # Normalize to [0, 1]
         img_tensor = img_tensor / 255.0
-        
+
         # 2. Ensure the tensor has the exact target dimensions (height, width)
         C, H, W = img_tensor.shape
         target_height, target_width = img_size
-        
-        padding_value = 1.0 if channels == 1 else 0.0  # White for grayscale, black for RGB
-        
+
+        padding_value = (
+            1.0 if channels == 1 else 0.0
+        )  # White for grayscale, black for RGB
+
         # Fix both height and width if needed
         if H != target_height or W != target_width:
             # Create a new tensor with the target dimensions
             padded_tensor = torch.ones((C, target_height, target_width)) * padding_value
-            
+
             # Copy as much of the original tensor as fits
             h = min(H, target_height)
             w = min(W, target_width)
             padded_tensor[:, :h, :w] = img_tensor[:, :h, :w]
-            
+
             img_tensor = padded_tensor
         # If width needs padding but height is correct
         elif W != target_width:
-            img_tensor = pad_image_width(img_tensor, target_width=target_width, padding_value=padding_value)
+            img_tensor = pad_image_width(
+                img_tensor, target_width=target_width, padding_value=padding_value
+            )
 
         # Apply additional normalization
         if normalize:
