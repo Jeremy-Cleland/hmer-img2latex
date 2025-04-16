@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Module to analyze image characteristics including sizes, color channels,
+Script to analyze image characteristics including sizes, color channels,
 and pixel value distributions of LaTeX formula images.
 """
 
@@ -9,64 +9,64 @@ import json
 import os
 import random
 from collections import Counter, defaultdict
-from typing import Optional
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-import typer
 from matplotlib.gridspec import GridSpec
 from PIL import Image
 
-from img2latex.utils import ensure_output_dir
 
-# Create Typer app
-app = typer.Typer(help="Analyze raw images in an image directory")
+def ensure_output_dir(base_dir: str, analysis_type: str) -> Path:
+    """Ensure output directory exists, creating it if necessary.
+
+    Args:
+        base_dir: Base directory path (can be relative or absolute)
+        analysis_type: Type of analysis (subdirectory name)
+
+    Returns:
+        Path object to the full output directory
+    """
+    if os.path.isabs(base_dir):
+        # If absolute path is provided, use it directly
+        output_dir = Path(base_dir)
+    else:
+        # If relative path, create it under the project root
+        output_dir = Path(os.getcwd()) / base_dir
+
+    # Add analysis type subdirectory
+    if analysis_type:
+        output_dir = output_dir / analysis_type
+
+    # Ensure directory exists
+    output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Output directory set to: {output_dir}")
+
+    return output_dir
 
 
-def analyze_images(
-    image_folder: str,
-    output_dir: str = "outputs/image_analysis",
-    max_images: Optional[int] = None,
-    sample_grid_rows: int = 5,
-    sample_grid_cols: int = 6,
-    bg_color: str = "#FFFFFF",
-):
+def analyze_images(image_folder, num_samples=500, detailed_samples=100):
     """
     Analyze images to determine size distribution, color channels, and pixel values.
 
     Args:
         image_folder: Path to folder containing images
-        output_dir: Directory to save analysis results
-        max_images: Maximum number of images to analyze (None for all)
-        sample_grid_rows: Number of rows in the sample image grid
-        sample_grid_cols: Number of columns in the sample image grid
-        bg_color: Background color for visualizations (hex code)
+        num_samples: Number of images to sample for basic analysis
+        detailed_samples: Number of images to use for detailed pixel analysis
+
+    Returns:
+        Dictionary with image statistics
     """
-    # Ensure output directory exists
-    output_path = ensure_output_dir(output_dir, "images")
-
-    print(f"Analyzing images in {image_folder}...")
-
     # Get all image files
     image_files = glob.glob(os.path.join(image_folder, "*.png"))
 
-    if not image_files:
-        print(f"No PNG images found in {image_folder}")
-        return
-
-    # Determine number of images to analyze
-    num_samples = len(image_files)
-    if max_images is not None and num_samples > max_images:
-        num_samples = max_images
-        print(f"Sampling {num_samples} images out of {len(image_files)}")
+    # Sample if there are more images than num_samples
+    if len(image_files) > num_samples:
         image_files = random.sample(image_files, num_samples)
-    else:
-        print(f"Analyzing all {num_samples} images")
 
-    # Determine number of images for detailed pixel analysis (max 100)
-    detailed_samples = min(100, num_samples)
-    detailed_files = image_files[:detailed_samples]
+    # Select a smaller subset for detailed pixel analysis
+    detailed_files = image_files[: min(detailed_samples, len(image_files))]
 
     # Collect information
     widths = []
@@ -166,60 +166,7 @@ def analyze_images(
         ),
     }
 
-    # Create visualizations
-    print("Creating image grid visualization...")
-    create_image_grid(
-        image_folder,
-        output_path / "sample_images.png",
-        rows=sample_grid_rows,
-        cols=sample_grid_cols,
-        bg_color=bg_color,
-    )
-
-    print("Creating size distribution visualization...")
-    visualize_size_distribution(
-        stats, output_path / "size_distribution.png", bg_color=bg_color
-    )
-
-    print("Creating pixel value visualization...")
-    visualize_pixel_values(stats, output_path / "pixel_values.png", bg_color=bg_color)
-
-    # Save statistics to JSON
-    with open(output_path / "image_stats.json", "w") as f:
-        # Convert numpy types to Python native types for JSON serialization
-        serializable_stats = {
-            k: v if not isinstance(v, (np.ndarray, np.generic)) else v.tolist()
-            for k, v in stats.items()
-        }
-        # Convert tuples to lists for JSON serialization
-        serializable_stats["most_common_sizes"] = [
-            [(w, h), count]
-            for ((w, h), count) in serializable_stats["most_common_sizes"]
-        ]
-        json.dump(serializable_stats, f, indent=2)
-
-    print(f"Analysis complete. Results saved to {output_path}")
-
-    # Print summary statistics
-    print("\nSummary Statistics:")
-    print(f"Number of images analyzed: {stats['num_images']}")
-    print(
-        f"Image dimensions (width x height): {stats['width_mean']:.1f} x {stats['height_mean']:.1f} (mean)"
-    )
-    print(f"Aspect ratio: {stats['aspect_ratio_mean']:.2f} (mean)")
-    print(
-        f"Most common size: {stats['most_common_sizes'][0][0][0]} x {stats['most_common_sizes'][0][0][1]} ({stats['most_common_sizes'][0][1]} images)"
-    )
-    print(
-        f"Color modes: {', '.join(f'{mode}: {count}' for mode, count in stats['color_modes'].items())}"
-    )
-
-    if stats["is_normalized_0_1"]:
-        print("Images are normalized to range [0, 1]")
-    elif stats["is_normalized_neg1_1"]:
-        print("Images are normalized to range [-1, 1]")
-    elif stats["is_uint8"]:
-        print("Images are in uint8 format (0-255)")
+    return stats
 
 
 def create_image_grid(
@@ -293,8 +240,7 @@ def create_image_grid(
     plt.savefig(output_path, facecolor=bg_color, bbox_inches="tight", dpi=300)
     print(f"Image grid saved to {output_path}")
 
-    plt.close(fig)
-    return output_path
+    return fig
 
 
 def visualize_size_distribution(stats, output_path, bg_color="#121212"):
@@ -302,292 +248,293 @@ def visualize_size_distribution(stats, output_path, bg_color="#121212"):
     Create visualizations of image size distributions.
 
     Args:
-        stats: Dictionary containing image statistics
+        stats: Dictionary with image statistics
         output_path: Path to save the output visualization
         bg_color: Background color for the plot
     """
-    # Create figure with dark background
+    # Set style for plots
+    sns.set(style="darkgrid")
+    plt.rcParams["axes.facecolor"] = bg_color
+    plt.rcParams["figure.facecolor"] = bg_color
+    plt.rcParams["text.color"] = "white"
+    plt.rcParams["axes.labelcolor"] = "white"
+    plt.rcParams["xtick.color"] = "white"
+    plt.rcParams["ytick.color"] = "white"
+
+    # Create figure with multiple subplots
     fig = plt.figure(figsize=(15, 12), facecolor=bg_color)
     gs = GridSpec(2, 2, figure=fig)
 
-    # Set text color
-    text_color = "white"
-
-    # 1. Width distribution
+    # Width distribution
     ax1 = fig.add_subplot(gs[0, 0])
-    sns.histplot(stats["widths"], kde=True, ax=ax1, color="skyblue")
-    ax1.set_title("Width Distribution", color=text_color)
-    ax1.set_xlabel("Width (pixels)", color=text_color)
-    ax1.set_ylabel("Count", color=text_color)
-    ax1.tick_params(colors=text_color)
-    ax1.set_facecolor(bg_color)
-    for spine in ax1.spines.values():
-        spine.set_color(text_color)
+    sns.histplot(stats["widths"], ax=ax1, color="skyblue", kde=True)
+    ax1.set_title("Width Distribution", color="white")
+    ax1.set_xlabel("Width (pixels)")
+    ax1.set_ylabel("Count")
 
-    # 2. Height distribution
+    # Height distribution
     ax2 = fig.add_subplot(gs[0, 1])
-    sns.histplot(stats["heights"], kde=True, ax=ax2, color="lightgreen")
-    ax2.set_title("Height Distribution", color=text_color)
-    ax2.set_xlabel("Height (pixels)", color=text_color)
-    ax2.set_ylabel("Count", color=text_color)
-    ax2.tick_params(colors=text_color)
-    ax2.set_facecolor(bg_color)
-    for spine in ax2.spines.values():
-        spine.set_color(text_color)
+    sns.histplot(stats["heights"], ax=ax2, color="salmon", kde=True)
+    ax2.set_title("Height Distribution", color="white")
+    ax2.set_xlabel("Height (pixels)")
+    ax2.set_ylabel("Count")
 
-    # 3. Aspect ratio distribution
+    # Aspect ratio distribution
     ax3 = fig.add_subplot(gs[1, 0])
-    sns.histplot(stats["aspect_ratios"], kde=True, ax=ax3, color="coral")
-    ax3.set_title("Aspect Ratio Distribution", color=text_color)
-    ax3.set_xlabel("Aspect Ratio (width/height)", color=text_color)
-    ax3.set_ylabel("Count", color=text_color)
-    ax3.tick_params(colors=text_color)
-    ax3.set_facecolor(bg_color)
-    for spine in ax3.spines.values():
-        spine.set_color(text_color)
+    sns.histplot(stats["aspect_ratios"], ax=ax3, color="lightgreen", kde=True)
+    ax3.set_title("Aspect Ratio Distribution", color="white")
+    ax3.set_xlabel("Aspect Ratio (width/height)")
+    ax3.set_ylabel("Count")
 
-    # 4. Scatter plot of width vs. height
+    # Width vs Height scatter plot
     ax4 = fig.add_subplot(gs[1, 1])
+    ax4.scatter(stats["widths"], stats["heights"], alpha=0.5, color="orchid")
+    ax4.set_title("Width vs Height", color="white")
+    ax4.set_xlabel("Width (pixels)")
+    ax4.set_ylabel("Height (pixels)")
 
-    # Create counter for point density
-    from collections import Counter
-
-    size_counter = Counter(zip(stats["widths"], stats["heights"]))
-    x, y, counts = zip(*[(w, h, c) for (w, h), c in size_counter.items()])
-
-    scatter = ax4.scatter(
-        x, y, c=counts, cmap="viridis", alpha=0.8, s=50, edgecolors="white"
-    )
-    cbar = plt.colorbar(scatter, ax=ax4)
-    cbar.set_label("Count", color=text_color)
-    cbar.ax.tick_params(colors=text_color)
-    cbar.outline.set_edgecolor(text_color)
-
-    ax4.set_title("Width vs. Height Scatter Plot", color=text_color)
-    ax4.set_xlabel("Width (pixels)", color=text_color)
-    ax4.set_ylabel("Height (pixels)", color=text_color)
-    ax4.tick_params(colors=text_color)
-    ax4.set_facecolor(bg_color)
-    for spine in ax4.spines.values():
-        spine.set_color(text_color)
-
-    # Add a text box with summary statistics
-    stats_text = (
-        f"Total Images: {stats['num_images']}\n"
-        f"Width: {stats['width_min']}-{stats['width_max']} px"
-        f" (mean: {stats['width_mean']:.1f}, median: {stats['width_median']:.1f})\n"
-        f"Height: {stats['height_min']}-{stats['height_max']} px"
-        f" (mean: {stats['height_mean']:.1f}, median: {stats['height_median']:.1f})\n"
-        f"Aspect Ratio: {stats['aspect_ratio_min']:.2f}-{stats['aspect_ratio_max']:.2f}"
-        f" (mean: {stats['aspect_ratio_mean']:.2f})"
+    # Add table with statistics
+    table_text = (
+        f"Number of images: {stats['num_images']}\n"
+        f"Width range: {stats['width_min']} - {stats['width_max']} px\n"
+        f"Width mean: {stats['width_mean']:.1f} px\n"
+        f"Height range: {stats['height_min']} - {stats['height_max']} px\n"
+        f"Height mean: {stats['height_mean']:.1f} px\n"
+        f"Aspect ratio range: {stats['aspect_ratio_min']:.2f} - {stats['aspect_ratio_max']:.2f}\n"
+        f"Aspect ratio mean: {stats['aspect_ratio_mean']:.2f}\n"
+        f"Most common size: {stats['most_common_sizes'][0][0]} px ({stats['most_common_sizes'][0][1]} images)"
     )
 
-    plt.figtext(
+    fig.text(
         0.5,
         0.01,
-        stats_text,
-        ha="center",
+        table_text,
         fontsize=12,
-        color=text_color,
-        bbox=dict(facecolor=bg_color, alpha=0.5, edgecolor=text_color),
+        color="white",
+        horizontalalignment="center",
+        verticalalignment="bottom",
     )
 
-    # Adjust layout and set overall background color
+    # Adjust layout
     plt.tight_layout(rect=[0, 0.05, 1, 0.95])
-    fig.patch.set_facecolor(bg_color)
+    plt.suptitle("Image Size Analysis", fontsize=16, color="white")
 
     # Save the figure
     plt.savefig(output_path, facecolor=bg_color, bbox_inches="tight", dpi=300)
     print(f"Size distribution visualization saved to {output_path}")
 
-    plt.close(fig)
-    return output_path
+    return fig
 
 
 def visualize_pixel_values(stats, output_path, bg_color="#121212"):
     """
-    Create visualizations of pixel value distributions.
+    Create visualizations of pixel value distributions and color modes.
 
     Args:
-        stats: Dictionary containing image statistics
+        stats: Dictionary with image statistics
         output_path: Path to save the output visualization
         bg_color: Background color for the plot
     """
-    # Create figure with dark background
-    fig = plt.figure(figsize=(15, 10), facecolor=bg_color)
+    # Set style for plots
+    sns.set(style="darkgrid")
+    plt.rcParams["axes.facecolor"] = bg_color
+    plt.rcParams["figure.facecolor"] = bg_color
+    plt.rcParams["text.color"] = "white"
+    plt.rcParams["axes.labelcolor"] = "white"
+    plt.rcParams["xtick.color"] = "white"
+    plt.rcParams["ytick.color"] = "white"
+
+    # Create figure with multiple subplots
+    fig = plt.figure(figsize=(15, 12), facecolor=bg_color)
     gs = GridSpec(2, 2, figure=fig)
 
-    # Set text color
-    text_color = "white"
-
-    # 1. Color mode distribution
+    # Color modes pie chart
     ax1 = fig.add_subplot(gs[0, 0])
-    color_modes = stats.get("color_modes", {})
-    if color_modes:
-        modes = list(color_modes.keys())
-        counts = list(color_modes.values())
-        colors = plt.cm.tab10(np.linspace(0, 1, len(modes)))
+    color_modes = stats["color_modes"]
+    labels = color_modes.keys()
+    sizes = color_modes.values()
+    explode = [0.1] * len(labels)  # explode all slices
+    ax1.pie(
+        sizes,
+        explode=explode,
+        labels=labels,
+        autopct="%1.1f%%",
+        shadow=True,
+        startangle=90,
+        textprops={"color": "white"},
+    )
+    ax1.axis("equal")  # Equal aspect ratio ensures that pie is drawn as a circle
+    ax1.set_title("Image Color Modes", color="white")
 
-        ax1.bar(modes, counts, color=colors)
-        ax1.set_title("Color Mode Distribution", color=text_color)
-        ax1.set_xlabel("Color Mode", color=text_color)
-        ax1.set_ylabel("Count", color=text_color)
-        ax1.tick_params(colors=text_color)
-        ax1.set_facecolor(bg_color)
-        for spine in ax1.spines.values():
-            spine.set_color(text_color)
-
-        # Add count labels on top of bars
-        for i, count in enumerate(counts):
-            ax1.text(
-                i,
-                count + 0.1,
-                str(count),
-                ha="center",
-                color=text_color,
-                fontweight="bold",
-            )
-
-    # 2. Channel count distribution
+    # Channel counts pie chart
     ax2 = fig.add_subplot(gs[0, 1])
-    channel_counts = stats.get("channel_counts", {})
-    if channel_counts:
-        channels = list(map(str, channel_counts.keys()))
-        counts = list(channel_counts.values())
-        colors = plt.cm.tab10(np.linspace(0, 1, len(channels)))
+    if stats["channel_counts"]:
+        channel_counts = stats["channel_counts"]
+        labels = [f"{k} channel{'s' if k > 1 else ''}" for k in channel_counts.keys()]
+        sizes = channel_counts.values()
+        explode = [0.1] * len(labels)  # explode all slices
+        ax2.pie(
+            sizes,
+            explode=explode,
+            labels=labels,
+            autopct="%1.1f%%",
+            shadow=True,
+            startangle=90,
+            textprops={"color": "white"},
+        )
+        ax2.axis("equal")
+    ax2.set_title("Number of Channels", color="white")
 
-        ax2.bar(channels, counts, color=colors)
-        ax2.set_title("Channel Count Distribution", color=text_color)
-        ax2.set_xlabel("Number of Channels", color=text_color)
-        ax2.set_ylabel("Count", color=text_color)
-        ax2.tick_params(colors=text_color)
-        ax2.set_facecolor(bg_color)
-        for spine in ax2.spines.values():
-            spine.set_color(text_color)
-
-        # Add count labels on top of bars
-        for i, count in enumerate(counts):
-            ax2.text(
-                i,
-                count + 0.1,
-                str(count),
-                ha="center",
-                color=text_color,
-                fontweight="bold",
-            )
-
-    # 3. Data type distribution
+    # Pixel value range
     ax3 = fig.add_subplot(gs[1, 0])
-    dtypes = stats.get("dtypes", {})
-    if dtypes:
-        dtype_names = list(dtypes.keys())
-        dtype_counts = list(dtypes.values())
-        colors = plt.cm.tab10(np.linspace(0, 1, len(dtype_names)))
+    if stats["min_pixel_value"] is not None and stats["max_pixel_value"] is not None:
+        pixel_range = [stats["min_pixel_value"], stats["max_pixel_value"]]
+        bar_labels = ["Min", "Max"]
+        ax3.bar(bar_labels, pixel_range, color=["blue", "red"])
+        ax3.set_title("Pixel Value Range", color="white")
+        ax3.set_ylabel("Pixel Value")
 
-        ax3.bar(dtype_names, dtype_counts, color=colors)
-        ax3.set_title("Data Type Distribution", color=text_color)
-        ax3.set_xlabel("Data Type", color=text_color)
-        ax3.set_ylabel("Count", color=text_color)
-        ax3.tick_params(colors=text_color)
-        ax3.set_facecolor(bg_color)
-        for spine in ax3.spines.values():
-            spine.set_color(text_color)
+        # Annotate the exact values
+        for i, v in enumerate(pixel_range):
+            ax3.text(i, v / 2, f"{v:.2f}", ha="center", color="white")
 
-        # Add count labels on top of bars
-        for i, count in enumerate(dtype_counts):
-            ax3.text(
-                i,
-                count + 0.1,
-                str(count),
-                ha="center",
-                color=text_color,
-                fontweight="bold",
-            )
-
-    # 4. Text box with pixel value statistics
+    # Data types
     ax4 = fig.add_subplot(gs[1, 1])
-    ax4.axis("off")
-    ax4.set_facecolor(bg_color)
+    if stats["dtypes"]:
+        dtypes = stats["dtypes"]
+        labels = list(dtypes.keys())
+        sizes = list(dtypes.values())
+        ax4.bar(labels, sizes, color="purple")
+        ax4.set_title("Image Data Types", color="white")
+        ax4.set_ylabel("Count")
+        ax4.tick_params(axis="x", rotation=45)
 
-    # Prepare statistics text
-    pixel_stats = [
-        "Pixel Value Statistics:",
-        "----------------------",
-        f"Min value: {stats.get('min_pixel_value', 'N/A')}",
-        f"Max value: {stats.get('max_pixel_value', 'N/A')}",
-        f"Mean value: {stats.get('mean_pixel_value', 'N/A'):.2f}",
-        f"Std. deviation: {stats.get('std_pixel_value', 'N/A'):.2f}",
-        "",
-        "Normalization Status:",
-        "----------------------",
-    ]
+        # Annotate the bars with counts
+        for i, v in enumerate(sizes):
+            ax4.text(i, v / 2, str(v), ha="center", color="white")
 
-    # Add normalization status
-    if stats.get("is_normalized_0_1"):
-        pixel_stats.append("✓ Images are normalized to range [0, 1]")
+    # Add normalization information
+    normalization_text = "Pixel Value Analysis:\n"
+
+    if stats["is_normalized_0_1"]:
+        normalization_text += "✓ Images appear to be normalized to [0, 1] range\n"
+    elif stats["is_normalized_neg1_1"]:
+        normalization_text += "✓ Images appear to be normalized to [-1, 1] range\n"
+    elif stats["is_uint8"]:
+        normalization_text += "✓ Images appear to be in standard uint8 format (0-255)\n"
     else:
-        pixel_stats.append("✗ Images are NOT normalized to range [0, 1]")
+        normalization_text += "? Images have non-standard normalization\n"
 
-    if stats.get("is_normalized_neg1_1"):
-        pixel_stats.append("✓ Images are normalized to range [-1, 1]")
-    else:
-        pixel_stats.append("✗ Images are NOT normalized to range [-1, 1]")
-
-    if stats.get("is_uint8"):
-        pixel_stats.append("✓ Images are 8-bit (values: 0-255)")
-    else:
-        pixel_stats.append("✗ Images are NOT 8-bit")
-
-    # Display the statistics
-    ax4.text(
-        0.5,
-        0.5,
-        "\n".join(pixel_stats),
-        ha="center",
-        va="center",
-        color=text_color,
-        fontsize=12,
-        fontfamily="monospace",
-        transform=ax4.transAxes,
+    normalization_text += (
+        f"Min: {stats['min_pixel_value']:.2f}, Max: {stats['max_pixel_value']:.2f}\n"
+    )
+    normalization_text += (
+        f"Mean: {stats['mean_pixel_value']:.2f}, Std: {stats['std_pixel_value']:.2f}\n"
     )
 
-    # Adjust layout and set overall background color
-    plt.tight_layout()
-    fig.patch.set_facecolor(bg_color)
+    most_common_mode = max(stats["color_modes"].items(), key=lambda x: x[1])[0]
+    normalization_text += (
+        f"Most common color mode: {most_common_mode} "
+        + f"({stats['color_modes'][most_common_mode]} images, "
+        + f"{stats['color_modes'][most_common_mode] / stats['num_images'] * 100:.1f}%)"
+    )
+
+    fig.text(
+        0.5,
+        0.01,
+        normalization_text,
+        fontsize=12,
+        color="white",
+        horizontalalignment="center",
+        verticalalignment="bottom",
+    )
+
+    # Adjust layout
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+    plt.suptitle("Color and Pixel Value Analysis", fontsize=16, color="white")
 
     # Save the figure
     plt.savefig(output_path, facecolor=bg_color, bbox_inches="tight", dpi=300)
-    print(f"Pixel value visualization saved to {output_path}")
+    print(f"Pixel value distribution visualization saved to {output_path}")
 
-    plt.close(fig)
-    return output_path
+    return fig
 
 
-@app.command()
-def analyze(
-    image_folder: str = typer.Argument(..., help="Path to folder containing images"),
-    output_dir: str = typer.Option(
-        "outputs/image_analysis", help="Directory to save analysis results"
-    ),
-    max_images: Optional[int] = typer.Option(
-        None, help="Maximum number of images to analyze (None for all)"
-    ),
-    rows: int = typer.Option(5, help="Number of rows in the sample image grid"),
-    cols: int = typer.Option(6, help="Number of columns in the sample image grid"),
-    bg_color: str = typer.Option(
-        "#FFFFFF", help="Background color for visualizations (hex code)"
-    ),
-):
-    """Analyze image characteristics in a dataset."""
-    analyze_images(
-        image_folder=image_folder,
-        output_dir=output_dir,
-        max_images=max_images,
-        sample_grid_rows=rows,
-        sample_grid_cols=cols,
-        bg_color=bg_color,
+def main():
+    # Set paths
+    image_folder = os.path.join(os.getcwd(), "data", "img")
+
+    # Setup output directory
+    output_dir = ensure_output_dir("outputs", "image_analysis")
+
+    # Analyze images
+    print("Analyzing images...")
+    stats = analyze_images(image_folder, num_samples=103537, detailed_samples=103537)
+
+    # Save stats to JSON
+    stats_path = output_dir / "image_stats.json"
+    with open(stats_path, "w") as f:
+        # Convert numpy values to native Python types for JSON serialization
+        simplified_stats = {
+            k: v
+            for k, v in stats.items()
+            if k not in ["widths", "heights", "aspect_ratios"]
+        }
+        json.dump(simplified_stats, f, indent=2)
+
+    # Print summary statistics
+    print("\nImage Size Statistics:")
+    print(f"Number of images analyzed: {stats['num_images']}")
+    print(f"Width range: {stats['width_min']} - {stats['width_max']} pixels")
+    print(f"Width mean: {stats['width_mean']:.1f} pixels")
+    print(f"Height range: {stats['height_min']} - {stats['height_max']} pixels")
+    print(f"Height mean: {stats['height_mean']:.1f} pixels")
+    print(
+        f"Aspect ratio range: {stats['aspect_ratio_min']:.2f} - {stats['aspect_ratio_max']:.2f}"
     )
+    print(f"Aspect ratio mean: {stats['aspect_ratio_mean']:.2f}")
+
+    print("\nMost common image sizes:")
+    for (width, height), count in stats["most_common_sizes"]:
+        print(f"  {width}x{height} pixels: {count} images")
+
+    print("\nColor and Pixel Value Analysis:")
+    print(f"Color modes: {stats['color_modes']}")
+    print(f"Channel counts: {stats['channel_counts']}")
+    print(f"Data types: {stats['dtypes']}")
+    print(f"Pixel value range: {stats['min_pixel_value']} - {stats['max_pixel_value']}")
+    print(f"Mean pixel value: {stats['mean_pixel_value']:.2f}")
+    print(f"Std dev of pixel values: {stats['std_pixel_value']:.2f}")
+
+    # Determine normalization
+    if stats["is_normalized_0_1"]:
+        print("Images appear to be normalized to [0, 1] range")
+    elif stats["is_normalized_neg1_1"]:
+        print("Images appear to be normalized to [-1, 1] range")
+    elif stats["is_uint8"]:
+        print("Images appear to be in standard uint8 format (0-255)")
+    else:
+        print("Images have non-standard normalization")
+
+    # Create image grid
+    print("\nCreating image grid...")
+    grid_output_path = output_dir / "formula_image_grid.png"
+    create_image_grid(
+        image_folder, grid_output_path, rows=5, cols=6, bg_color="#121212"
+    )
+
+    # Create size distribution visualization
+    print("\nCreating size distribution visualization...")
+    dist_output_path = output_dir / "size_distribution.png"
+    visualize_size_distribution(stats, dist_output_path, bg_color="#121212")
+
+    # Create pixel value distribution visualization
+    print("\nCreating pixel value distribution visualization...")
+    pixel_output_path = output_dir / "pixel_distribution.png"
+    visualize_pixel_values(stats, pixel_output_path, bg_color="#121212")
+
+    print(f"\nAnalysis complete. Results saved to {output_dir}")
 
 
 if __name__ == "__main__":
-    app()
+    main()

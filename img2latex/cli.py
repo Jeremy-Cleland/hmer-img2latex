@@ -11,6 +11,24 @@ import yaml
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+from img2latex.analysis import (
+    curves as curves_app,
+)
+from img2latex.analysis import (
+    errors as errors_app,
+)
+from img2latex.analysis import (
+    images as images_app,
+)
+from img2latex.analysis import (
+    preprocess as preprocess_app,
+)
+from img2latex.analysis import (
+    project as project_app,
+)
+from img2latex.analysis import (
+    tokens as tokens_app,
+)
 from img2latex.data.dataset import create_data_loaders
 from img2latex.data.tokenizer import LaTeXTokenizer
 from img2latex.model.seq2seq import Seq2SeqModel
@@ -30,6 +48,10 @@ from img2latex.utils.visualize_metrics import (
 app = typer.Typer(name="img2latex", help="Image to LaTeX conversion tool")
 console = Console()
 logger = get_logger(__name__)
+
+# Create analysis sub-app
+analysis_app = typer.Typer(help="Analysis tools for img2latex")
+app.add_typer(analysis_app, name="analyze")
 
 
 def load_config(config_path: str) -> Dict:
@@ -414,6 +436,16 @@ def visualize_metrics(
         plot_metrics_over_time(metrics_list, output_dir)
         console.print("[green]Plots generated successfully[/green]")
 
+
+# add analysis commands
+app.add_typer(images_app.app, name="images", help="Compute image stats & visuals")
+app.add_typer(project_app.app, name="project", help="Inspect config & data")
+app.add_typer(curves_app.app, name="curves", help="Plot learning curves")
+app.add_typer(tokens_app.app, name="tokens", help="Token distribution analysis")
+app.add_typer(errors_app.app, name="errors", help="Error‑analysis report")
+app.add_typer(
+    preprocess_app.app, name="preprocess", help="Visualize preprocessing pipeline"
+)
 
 if __name__ == "__main__":
     app()

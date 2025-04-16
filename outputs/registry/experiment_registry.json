@@ -297,7 +297,7 @@
     "config_path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v2/config.yaml",
     "creation_time": "2025-04-16 15:20:40",
     "description": "Image-to-LaTeX model: cnn_lstm with 256 embedding dim, 256 hidden dim. Training with lr=0.001, batch_size=128, max_epochs=100",
-    "last_updated": "2025-04-16 16:13:48",
+    "last_updated": "2025-04-16 16:38:53",
     "metrics": {
       "steps": {
         "1": {
@@ -370,6 +370,46 @@
           "val_levenshtein": 0.2780532854900395,
           "val_loss": 1.6338028678757315
         },
+        "16": {
+          "epoch": 16,
+          "step": 4720,
+          "train_acc": 0.615846390683012,
+          "train_loss": 1.6123432828183588,
+          "val_acc": 0.6156298920655846,
+          "val_bleu": 0.14773960579528844,
+          "val_levenshtein": 0.2785027797051637,
+          "val_loss": 1.6171628913856606
+        },
+        "17": {
+          "epoch": 17,
+          "step": 5015,
+          "train_acc": 0.6188278194980664,
+          "train_loss": 1.5961833279966635,
+          "val_acc": 0.616414682376205,
+          "val_bleu": 0.14917275225780782,
+          "val_levenshtein": 0.27993925468224173,
+          "val_loss": 1.615428679476502
+        },
+        "18": {
+          "epoch": 18,
+          "step": 5310,
+          "train_acc": 0.6208745064852742,
+          "train_loss": 1.5855409518146546,
+          "val_acc": 0.6164455796325287,
+          "val_bleu": 0.14911162710805476,
+          "val_levenshtein": 0.2797929659956936,
+          "val_loss": 1.6135660497375999
+        },
+        "19": {
+          "epoch": 19,
+          "step": 5605,
+          "train_acc": 0.6231521783598648,
+          "train_loss": 1.5735839391190203,
+          "val_acc": 0.6189194199555079,
+          "val_bleu": 0.15035389127093077,
+          "val_levenshtein": 0.28048010351798003,
+          "val_loss": 1.6041016831620192
+        },
         "2": {
           "epoch": 2,
           "step": 590,
@@ -379,6 +419,36 @@
           "val_bleu": 0.09897762361396209,
           "val_levenshtein": 0.24416079033255994,
           "val_loss": 2.067960963140964
+        },
+        "20": {
+          "epoch": 20,
+          "step": 5900,
+          "train_acc": 0.6247801046855687,
+          "train_loss": 1.5655826694519566,
+          "val_acc": 0.6179780835461811,
+          "val_bleu": 0.15024613900458966,
+          "val_levenshtein": 0.2799136661217267,
+          "val_loss": 1.6029840972403615
+        },
+        "21": {
+          "epoch": 21,
+          "step": 6195,
+          "train_acc": 0.6271138564731159,
+          "train_loss": 1.5530937756655898,
+          "val_acc": 0.6206702644805141,
+          "val_bleu": 0.1506833474365959,
+          "val_levenshtein": 0.280528384434643,
+          "val_loss": 1.5934206161020477
+        },
+        "22": {
+          "epoch": 22,
+          "step": 6490,
+          "train_acc": 0.628281421874016,
+          "train_loss": 1.546151497152627,
+          "val_acc": 0.620414847161572,
+          "val_bleu": 0.15021147324688597,
+          "val_levenshtein": 0.27995006820296614,
+          "val_loss": 1.590993117118252
         },
         "3": {
           "epoch": 3,
