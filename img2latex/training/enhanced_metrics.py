@@ -103,7 +103,7 @@ def sample_predictions_and_targets(
     outputs: torch.Tensor,
     targets: torch.Tensor,
     tokenizer: LaTeXTokenizer,
-    num_samples: int = 5,
+    num_samples: int = 2,
     confidence_threshold: float = 0.5,
 ) -> Dict[str, List]:
     """
@@ -119,19 +119,28 @@ def sample_predictions_and_targets(
     Returns:
         Dictionary with sampled predictions and targets
     """
-    batch_size, seq_length, vocab_size = outputs.shape
+    # Immediately detach and move tensors to CPU, then clean up originals
+    outputs_cpu = outputs.detach().cpu()
+    targets_cpu = targets.detach().cpu()
+    # Clean up original tensors to free up memory
+    del outputs, targets
+
+    batch_size, seq_length, vocab_size = outputs_cpu.shape
 
     # Apply softmax to get probabilities
-    probs = torch.nn.functional.softmax(outputs, dim=-1)
+    probs = torch.nn.functional.softmax(outputs_cpu, dim=-1)
 
     # Get predicted tokens and their probabilities
     pred_tokens = torch.argmax(probs, dim=-1)
     pred_probs = torch.max(probs, dim=-1)[0]
 
     # Convert to numpy for easier handling
-    pred_tokens_np = pred_tokens.cpu().numpy()
-    pred_probs_np = pred_probs.cpu().numpy()
-    targets_np = targets.cpu().numpy()
+    pred_tokens_np = pred_tokens.numpy()
+    pred_probs_np = pred_probs.numpy()
+    targets_np = targets_cpu.numpy()
+
+    # Clean up intermediate tensors
+    del outputs_cpu, targets_cpu, probs, pred_tokens, pred_probs
 
     samples = []
 
@@ -281,7 +290,7 @@ def generate_enhanced_metrics(
     all_predictions: List[List[int]],
     all_targets: List[List[int]],
     tokenizer: LaTeXTokenizer,
-    num_samples: int = 5,
+    num_samples: int = 2,
     experiment_name: str = "",
     metrics_dir: str = "",
     epoch: int = 0,
@@ -305,10 +314,24 @@ def generate_enhanced_metrics(
     Returns:
         Dictionary of enhanced metrics
     """
+    # Ensure tensors are on CPU - they should already be detached when passed to this function
+    # But we'll check to make sure
+    if isinstance(outputs, torch.Tensor) and outputs.device.type != "cpu":
+        outputs = outputs.detach().cpu()
+    if isinstance(targets, torch.Tensor) and targets.device.type != "cpu":
+        targets = targets.detach().cpu()
+
     # Sample predictions and targets
     sample_data = sample_predictions_and_targets(
         outputs, targets, tokenizer, num_samples
     )
+
+    # Immediate cleanup of tensors after sampling
+    del outputs, targets
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    elif hasattr(torch, "mps") and torch.backends.mps.is_available():
+        torch.mps.empty_cache()
 
     # Analyze token distribution
     token_dist = analyze_token_distribution(all_predictions, all_targets, tokenizer)
@@ -327,4 +350,12 @@ def generate_enhanced_metrics(
     # Log summary
     log_enhanced_metrics_summary(enhanced_metrics)
 
-    return enhanced_metrics
+    # Make a clean copy of the results before returning and clean up original data
+    result = enhanced_metrics.copy()
+    del enhanced_metrics, sample_data, token_dist
+
+    # Empty cache again for good measure
+    if hasattr(torch, "mps") and torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+
+    return result

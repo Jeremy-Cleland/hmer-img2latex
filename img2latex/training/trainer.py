@@ -79,6 +79,10 @@ class Trainer:
         self.learning_rate = training_config.get("learning_rate", 0.001)
         self.weight_decay = training_config.get("weight_decay", 0.0001)
 
+        # Gradient accumulation steps
+        self.accumulation_steps = training_config.get("accumulation_steps", 1)
+        logger.info(f"Using gradient accumulation with {self.accumulation_steps} steps")
+
         # Create optimizer
         self.optimizer = optim.Adam(
             model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay
@@ -269,14 +273,21 @@ class Trainer:
 
             deep_clean_memory()
 
+        # Only zero gradients at the beginning if using accumulation
+        if self.accumulation_steps > 1:
+            self.optimizer.zero_grad(set_to_none=True)
+
         for batch_idx, batch in enumerate(progress_bar):
             # Prepare batch
             images, targets = prepare_batch(
                 batch, self.device, model_type=self.config["model"]["name"]
             )
 
-            # Zero the gradients
-            self.optimizer.zero_grad(set_to_none=True)  # More efficient memory clearing
+            # Zero the gradients if not using accumulation or at the start of accumulation cycle
+            if self.accumulation_steps == 1:
+                self.optimizer.zero_grad(
+                    set_to_none=True
+                )  # More efficient memory clearing
 
             # Forward pass
             outputs = self.model(images, targets)
@@ -285,25 +296,19 @@ class Trainer:
             batch_size, seq_length, vocab_size = outputs.shape
             targets_shifted = targets[:, 1:]  # Skip the first token (START token)
 
-            # Calculate loss
-            loss = self.criterion(
-                outputs.reshape(-1, vocab_size), targets_shifted.reshape(-1)
-            )
+            # Calculate loss and normalize by accumulation steps
+            loss = (
+                self.criterion(
+                    outputs.reshape(-1, vocab_size), targets_shifted.reshape(-1)
+                )
+                / self.accumulation_steps
+            )  # Normalize loss
 
             # Backward pass
             loss.backward()
 
-            # Gradient clipping
-            if self.grad_clip_norm > 0:
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), self.grad_clip_norm
-                )
-
-            # Optimizer step
-            self.optimizer.step()
-
-            # Get the loss value and then free the computational graph
-            loss_value = loss.item()
+            # Get the loss value before optimization (multiply by accumulation steps to get the actual loss)
+            loss_value = loss.item() * self.accumulation_steps
             acc_value, num_tokens_value = masked_accuracy(
                 outputs, targets_shifted, self.tokenizer.pad_token_id
             )
@@ -316,51 +321,69 @@ class Trainer:
             epoch_acc += acc_value * num_tokens_value
             epoch_tokens += num_tokens_value
             epoch_samples += batch_size
-            self.global_step += 1
 
-            # Update progress bar
-            progress_bar.set_postfix({"loss": loss_value, "acc": acc_value})
+            # Only update weights and reset gradients after accumulation steps or at the end of epoch
+            if (batch_idx + 1) % self.accumulation_steps == 0 or batch_idx == len(
+                self.train_loader
+            ) - 1:
+                # Gradient clipping
+                if self.grad_clip_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), self.grad_clip_norm
+                    )
 
-            # Save checkpoint if needed
-            if (
-                self.use_epoch_checkpointing
-                and (self.current_epoch + 1) % self.save_checkpoint_epochs == 0
-                and batch_idx == len(self.train_loader) - 1
-            ):
-                # Save at the end of epochs that are divisible by save_checkpoint_epochs
-                metrics = {
-                    "train_loss": epoch_loss / epoch_samples,
-                    "train_acc": epoch_acc / epoch_tokens,
-                }
-                self.save_checkpoint(
-                    epoch=self.current_epoch, step=self.global_step, metrics=metrics
-                )
-            elif (
-                not self.use_epoch_checkpointing
-                and self.global_step % self.save_checkpoint_steps == 0
-            ):
-                # Traditional step-based saving if epoch-based saving is not enabled
-                metrics = {
-                    "train_loss": epoch_loss / epoch_samples,
-                    "train_acc": epoch_acc / epoch_tokens,
-                }
-                self.save_checkpoint(
-                    epoch=self.current_epoch, step=self.global_step, metrics=metrics
-                )
+                # Optimizer step
+                self.optimizer.step()
 
-            # Deep clean after saving checkpoint (for either type of checkpoint)
-            if (
-                self.use_epoch_checkpointing
-                and (self.current_epoch + 1) % self.save_checkpoint_epochs == 0
-                and batch_idx == len(self.train_loader) - 1
-            ) or (
-                not self.use_epoch_checkpointing
-                and self.global_step % self.save_checkpoint_steps == 0
-            ):
-                if self.device.type == "mps":
-                    from img2latex.utils.mps_utils import deep_clean_memory
+                # Zero gradients after optimization
+                self.optimizer.zero_grad(set_to_none=True)
 
-                    deep_clean_memory()
+                # Increment global step after accumulation cycle completes
+                self.global_step += 1
+
+                # Update progress bar
+                progress_bar.set_postfix({"loss": loss_value, "acc": acc_value})
+
+                # Save checkpoint if needed
+                if (
+                    self.use_epoch_checkpointing
+                    and (self.current_epoch + 1) % self.save_checkpoint_epochs == 0
+                    and batch_idx == len(self.train_loader) - 1
+                ):
+                    # Save at the end of epochs that are divisible by save_checkpoint_epochs
+                    metrics = {
+                        "train_loss": epoch_loss / epoch_samples,
+                        "train_acc": epoch_acc / epoch_tokens,
+                    }
+                    self.save_checkpoint(
+                        epoch=self.current_epoch, step=self.global_step, metrics=metrics
+                    )
+                elif (
+                    not self.use_epoch_checkpointing
+                    and self.global_step % self.save_checkpoint_steps == 0
+                ):
+                    # Traditional step-based saving if epoch-based saving is not enabled
+                    metrics = {
+                        "train_loss": epoch_loss / epoch_samples,
+                        "train_acc": epoch_acc / epoch_tokens,
+                    }
+                    self.save_checkpoint(
+                        epoch=self.current_epoch, step=self.global_step, metrics=metrics
+                    )
+
+                # Deep clean after saving checkpoint (for either type of checkpoint)
+                if (
+                    self.use_epoch_checkpointing
+                    and (self.current_epoch + 1) % self.save_checkpoint_epochs == 0
+                    and batch_idx == len(self.train_loader) - 1
+                ) or (
+                    not self.use_epoch_checkpointing
+                    and self.global_step % self.save_checkpoint_steps == 0
+                ):
+                    if self.device.type == "mps":
+                        from img2latex.utils.mps_utils import deep_clean_memory
+
+                        deep_clean_memory()
 
             # Clean up GPU memory in MPS mode - do more frequently (every 5 batches)
             if self.device.type == "mps":
@@ -491,8 +514,10 @@ class Trainer:
 
                         # Store first batch for enhanced metrics (make copies to avoid memory issues)
                         if batch_idx == 0:
-                            enhanced_metrics_batch = outputs.detach().clone()
-                            enhanced_metrics_targets = targets_shifted.detach().clone()
+                            enhanced_metrics_batch = outputs.detach().cpu().clone()
+                            enhanced_metrics_targets = (
+                                targets_shifted.detach().cpu().clone()
+                            )
 
                     # Free memory explicitly
                     del outputs, loss, images, targets, targets_shifted
@@ -562,6 +587,11 @@ class Trainer:
                 if (
                     enhanced_metrics_batch is not None
                     and enhanced_metrics_targets is not None
+                    # Only generate enhanced metrics every 5 epochs or when validation improves
+                    and (
+                        self.current_epoch % 5 == 0
+                        or val_loss / val_samples < self.best_val_loss
+                    )
                 ):
                     try:
                         # Do a memory cleanup before generating metrics
@@ -573,7 +603,7 @@ class Trainer:
                         # Get metrics directory directly from path_manager
                         metrics_dir = path_manager.get_metrics_dir(self.experiment_name)
 
-                        # Generate enhanced metrics
+                        # Generate enhanced metrics with reduced num_samples
                         generate_enhanced_metrics(
                             enhanced_metrics_batch,
                             enhanced_metrics_targets,
@@ -581,13 +611,18 @@ class Trainer:
                             all_targets,
                             self.tokenizer,
                             num_samples=min(
-                                5, len(all_predictions)
-                            ),  # Ensure we don't exceed available samples
+                                2, len(all_predictions)
+                            ),  # Reduced from 5 to 2 samples
                             experiment_name=self.experiment_name,
                             metrics_dir=metrics_dir,
                             epoch=self.current_epoch,
                             save_to_file=True,
                         )
+
+                        # Immediate cleanup after sampling
+                        if self.device.type == "mps":
+                            torch.mps.empty_cache()
+
                     except Exception as e:
                         logger.error(f"Error generating enhanced metrics: {e}")
                     finally:
@@ -688,6 +723,10 @@ class Trainer:
                 # Validate
                 val_metrics = self.validate()
 
+                # Explicit cache clearing after validation
+                if self.device.type == "mps":
+                    torch.mps.empty_cache()
+
                 # Check for improvement
                 if val_metrics["val_loss"] < self.best_val_loss:
                     self.best_val_loss = val_metrics["val_loss"]
@@ -726,6 +765,11 @@ class Trainer:
                     from img2latex.utils.mps_utils import deep_clean_memory
 
                     deep_clean_memory()
+
+                    # Add diagnostics for MPS memory usage
+                    print(
+                        f"Epoch {epoch + 1} - MPS allocated: {torch.mps.current_allocated_memory() / (1024**2):.2f} MB"
+                    )
 
             except RuntimeError as e:
                 # Handle out of memory errors gracefully

@@ -45,19 +45,23 @@ Each line in the split files has the format: `<image_file> <formula_index>`, whe
 We conducted a comprehensive analysis of the 103,536 images in the dataset with the following findings:
 
 #### Image Size Statistics
+
 - **Width**: Range from 128 to 800 pixels (mean: 319.2px)
 - **Height**: Range from 32 to 800 pixels (mean: 61.2px)
 - **Aspect Ratio**: Range from 1.00 to 15.00 (mean: 5.79)
 - **Most Common Size**: 320x64 pixels (11,821 images)
 
 #### Color and Pixel Analysis
+
 - **Mode**: All images are RGB (3 channels)
 - **Data Type**: uint8 (0-255 range)
 - **Pixel Statistics**: Mean value = 241.51, Standard deviation = 46.84
 - **Background**: Predominantly white backgrounds
 
 #### Implementation Strategy
+
 Based on this analysis, our implementation:
+
 1. Resizes all images to a fixed height of 64px (maintaining aspect ratio)
 2. Pads width to 800px to accommodate all formulas without information loss
 3. Converts RGB to grayscale for CNN models (keeping RGB for ResNet models)
@@ -116,7 +120,7 @@ Our image preprocessing pipeline includes:
 
 1. **Resizing**: Height fixed at 64px while maintaining the aspect ratio
 2. **Padding**: Width padded to 800px (right padding with white)
-3. **Channel Conversion**: 
+3. **Channel Conversion**:
    - CNN: RGB to grayscale (1 channel)
    - ResNet: Keep as RGB (3 channels)
 4. **Normalization**:

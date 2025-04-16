@@ -2,21 +2,29 @@
 """
 Script to analyze various aspects of the img2latex project setup,
 including configuration, paths, data characteristics, and model parameters.
+
+Features:
+- Load and validate config.yaml
+- Check for missing files
+- Compare current config.yaml to last Git commit
+- Summarize hyperparameter sweep
+- Snapshot environment
+- Check model config consistency
 """
 
-import os
+import argparse
+import json
+import subprocess
 import sys
-from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Union
 
 import matplotlib.pyplot as plt
-import numpy as np
+import pandas as pd
 import typer
 import yaml
 from rich.console import Console
-from rich.table import Table
-from tqdm import tqdm
+from utils import ensure_output_dir
 
 # Suppress specific warnings if needed (e.g., from libraries)
 # warnings.filterwarnings("ignore", category=SomeWarningCategory)
@@ -45,885 +53,734 @@ app = typer.Typer(help="Analyze img2latex project configuration and data.")
 # --- Helper Functions ---
 
 
-def load_config(config_path: Path) -> Optional[Dict[str, Any]]:
-    """Loads configuration from a YAML file."""
-    if not config_path.is_file():
-        logger.error(f"Config file not found: {config_path}")
-        return None
+def load_config(config_path: Union[str, Path]) -> Dict:
+    """Load and parse a YAML config file.
+
+    Args:
+        config_path: Path to the YAML config file
+
+    Returns:
+        Dictionary containing the parsed config
+
+    Raises:
+        FileNotFoundError: If the config file is not found
+        yaml.YAMLError: If the config file cannot be parsed
+    """
     try:
-        with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
+        with open(config_path, "r") as file:
+            config = yaml.safe_load(file)
         logger.info(f"Successfully loaded config from: {config_path}")
         return config
+    except FileNotFoundError:
+        logger.error(f"Error: Config file not found at {config_path}")
+        raise
     except yaml.YAMLError as e:
-        logger.error(f"Error parsing config file {config_path}: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"An unexpected error occurred loading config: {e}")
-        return None
+        logger.error(f"Error parsing config file: {e}")
+        raise
 
 
-def check_paths(config: Dict[str, Any]) -> List[str]:
-    """Verifies that essential data paths from config exist."""
-    warnings_errors = []
-    base_data_dir = Path(config.get("data", {}).get("data_dir", ""))
-    if not base_data_dir or not base_data_dir.is_dir():
-        warnings_errors.append(
-            f"ERROR: Base data directory not found or not specified: '{base_data_dir}'"
-        )
-        # Stop further path checks if base dir is missing
-        return warnings_errors
+def validate_config(config: Dict) -> List[str]:
+    """Validate the configuration to ensure required fields are present and valid.
 
-    # Check formula file
-    formulas_file = config.get("data", {}).get("formulas_file")
-    formulas_path = base_data_dir / (formulas_file if formulas_file else "")
-    if not formulas_file or not formulas_path.is_file():
-        warnings_errors.append(f"WARNING: Formulas file not found: '{formulas_path}'")
+    Args:
+        config: Dictionary containing the configuration
 
-    # Check split files
-    for split in ["train", "validate", "test"]:
-        split_key = f"{split}_file"
-        split_file = config.get("data", {}).get(split_key)
-        split_path = base_data_dir / (split_file if split_file else "")
-        if not split_file or not split_path.is_file():
-            warnings_errors.append(
-                f"WARNING: Split file '{split_key}' not found: '{split_path}'"
+    Returns:
+        List of validation error messages (empty if valid)
+    """
+    errors = []
+
+    # Check required top-level sections
+    required_sections = ["data", "model", "training", "evaluation", "logging"]
+    for section in required_sections:
+        if section not in config:
+            errors.append(f"Missing required section: {section}")
+
+    # If missing sections, return early
+    if errors:
+        return errors
+
+    # Check data section
+    data_config = config.get("data", {})
+    required_data_fields = [
+        "data_dir",
+        "train_file",
+        "validate_file",
+        "test_file",
+        "formulas_file",
+        "img_dir",
+        "batch_size",
+    ]
+    for field in required_data_fields:
+        if field not in data_config:
+            errors.append(f"Missing required field in data section: {field}")
+
+    # Check model section
+    model_config = config.get("model", {})
+    if "name" not in model_config:
+        errors.append("Missing required field: model.name")
+    else:
+        model_name = model_config["name"]
+        valid_models = ["cnn_lstm", "resnet_lstm"]
+        if model_name not in valid_models:
+            errors.append(
+                f"Invalid model name: {model_name}. Must be one of {valid_models}"
             )
+
+        # Check encoder and decoder settings based on model name
+        encoder_config = model_config.get("encoder", {})
+        if model_name == "cnn_lstm":
+            if "cnn" not in encoder_config:
+                errors.append(
+                    "Missing required section: model.encoder.cnn for cnn_lstm model"
+                )
+            else:
+                cnn_config = encoder_config.get("cnn", {})
+                required_cnn_fields = [
+                    "img_height",
+                    "img_width",
+                    "channels",
+                    "conv_filters",
+                ]
+                for field in required_cnn_fields:
+                    if field not in cnn_config:
+                        errors.append(
+                            f"Missing required field in model.encoder.cnn: {field}"
+                        )
+        elif model_name == "resnet_lstm":
+            if "resnet" not in encoder_config:
+                errors.append(
+                    "Missing required section: model.encoder.resnet for resnet_lstm model"
+                )
+            else:
+                resnet_config = encoder_config.get("resnet", {})
+                required_resnet_fields = [
+                    "img_height",
+                    "img_width",
+                    "channels",
+                    "model_name",
+                ]
+                for field in required_resnet_fields:
+                    if field not in resnet_config:
+                        errors.append(
+                            f"Missing required field in model.encoder.resnet: {field}"
+                        )
+
+        # Check decoder settings
+        decoder_config = model_config.get("decoder", {})
+        required_decoder_fields = ["hidden_dim", "lstm_layers", "dropout"]
+        for field in required_decoder_fields:
+            if field not in decoder_config:
+                errors.append(f"Missing required field in model.decoder: {field}")
+
+    # Check training section
+    training_config = config.get("training", {})
+    required_training_fields = ["optimizer", "learning_rate", "epochs", "device"]
+    for field in required_training_fields:
+        if field not in training_config:
+            errors.append(f"Missing required field in training section: {field}")
+
+    # Check evaluation section
+    eval_config = config.get("evaluation", {})
+    if "metrics" not in eval_config:
+        errors.append("Missing required field: evaluation.metrics")
+
+    return errors
+
+
+def check_missing_files(
+    config: Dict, base_dir: Union[str, Path]
+) -> Dict[str, List[str]]:
+    """Check for missing files referenced in the config.
+
+    Args:
+        config: Dictionary containing the configuration
+        base_dir: Base directory for relative paths
+
+    Returns:
+        Dictionary with lists of missing files by category
+    """
+    base_dir = Path(base_dir)
+    missing_files = {"data_files": [], "image_directory": []}
+
+    # Check data files
+    data_config = config.get("data", {})
+    data_dir = Path(data_config.get("data_dir", ""))
+
+    # If data_dir is not absolute, make it relative to base_dir
+    if not data_dir.is_absolute():
+        data_dir = base_dir / data_dir
+
+    # Check train/val/test files
+    for file_key in ["train_file", "validate_file", "test_file", "formulas_file"]:
+        file_path = data_dir / data_config.get(file_key, "")
+        if not file_path.exists():
+            missing_files["data_files"].append(str(file_path))
 
     # Check image directory
-    img_dir = config.get("data", {}).get("img_dir")
-    expected_img_dir = "img"
-    if not img_dir:
-        warnings_errors.append("ERROR: 'data.img_dir' not specified in config.")
-    elif img_dir != expected_img_dir:
-        warnings_errors.append(
-            f"WARNING: 'data.img_dir' is '{img_dir}', recommend setting to '{expected_img_dir}' based on dataset used."
-        )
-    else:
-        img_path = base_data_dir / img_dir
-        if not img_path.is_dir():
-            warnings_errors.append(
-                f"WARNING: Specified image directory not found: '{img_path}'"
-            )
+    img_dir = data_dir / data_config.get("img_dir", "")
+    if not img_dir.exists():
+        missing_files["image_directory"].append(str(img_dir))
 
-    return warnings_errors
+    return missing_files
 
 
-def analyze_formula_lengths(
-    formulas_path: Path,
-    tokenizer: LaTeXTokenizer,
-    config_max_len: int,
-    percentile_cutoff: float = 95.0,
-) -> Tuple[Dict[str, Any], List[str], np.ndarray]:
-    """Analyzes tokenized lengths of formulas.
+def compare_config_with_git(config_path: Union[str, Path]) -> Dict[str, List[str]]:
+    """Compare current config with the last committed version in Git.
 
     Args:
-        formulas_path: Path to the formulas file
-        tokenizer: LaTeXTokenizer instance
-        config_max_len: Maximum sequence length from config
-        percentile_cutoff: Percentile to suggest as cutoff (default: 95.0)
+        config_path: Path to the current config file
 
     Returns:
-        stats: Dictionary with length statistics
-        warnings_errors: List of warning/error messages
-        lengths_arr: Array of all formula lengths
+        Dictionary with lists of added, modified, and deleted fields
     """
-    warnings_errors = []
-    stats = {
-        "max_found_len": 0,
-        "avg_len": 0,
-        "median_len": 0,
-        "num_exceeding": 0,
-        "total_formulas": 0,
-        "percentiles": {},
-        "suggested_cutoff": 0,
-    }
-    if not formulas_path.is_file():
-        warnings_errors.append(
-            f"ERROR: Cannot analyze lengths, formulas file not found: {formulas_path}"
-        )
-        return stats, warnings_errors, np.array([])
-
-    lengths = []
-    try:
-        with open(formulas_path, "r", encoding="utf-8") as f:
-            logger.info("Analyzing formula lengths (this may take a moment)...")
-            for line in tqdm(f, desc="Reading formulas"):
-                formula = line.strip()
-                # Tokenize *including* special tokens to get true sequence length
-                tokens = tokenizer.encode(formula, add_special_tokens=True)
-                lengths.append(len(tokens))
-
-        if not lengths:
-            warnings_errors.append(
-                "WARNING: No formulas found or processed in the formulas file."
-            )
-            return stats, warnings_errors, np.array([])
-
-        lengths_arr = np.array(lengths)
-
-        # Basic statistics
-        stats["max_found_len"] = int(np.max(lengths_arr))
-        stats["avg_len"] = float(np.mean(lengths_arr))
-        stats["median_len"] = int(np.median(lengths_arr))
-        stats["std_len"] = float(np.std(lengths_arr))
-        stats["num_exceeding"] = int(np.sum(lengths_arr > config_max_len))
-        stats["total_formulas"] = len(lengths)
-
-        # Calculate percentiles for distribution analysis
-        percentiles = [50, 75, 90, 95, 99, 99.5, 99.9]
-        for p in percentiles:
-            stats["percentiles"][p] = int(np.percentile(lengths_arr, p))
-
-        # Suggest cutoff based on provided percentile
-        stats["suggested_cutoff"] = int(np.percentile(lengths_arr, percentile_cutoff))
-
-        # Histogram data
-        stats["histogram_bins"] = 50
-        stats["histogram_counts"], stats["histogram_edges"] = np.histogram(
-            lengths_arr, bins=stats["histogram_bins"]
-        )
-
-        if stats["max_found_len"] > config_max_len:
-            warnings_errors.append(
-                f"WARNING: Max formula length found ({stats['max_found_len']}) "
-                f"exceeds config max_seq_length ({config_max_len}). "
-                f"{stats['num_exceeding']} formulas will be affected (filtered/truncated)."
-            )
-
-        # Suggest filter strategy based on distribution
-        if stats["suggested_cutoff"] < config_max_len:
-            warnings_errors.append(
-                f"INFO: Consider using {stats['suggested_cutoff']} as a length cutoff "
-                f"({percentile_cutoff}th percentile), which is less than config max_seq_length ({config_max_len})."
-            )
-        else:
-            warnings_errors.append(
-                f"INFO: The {percentile_cutoff}th percentile length is {stats['suggested_cutoff']}, "
-                f"which exceeds config max_seq_length ({config_max_len}). "
-                f"Consider increasing max_seq_length or using a lower percentile cutoff."
-            )
-
-    except Exception as e:
-        warnings_errors.append(f"ERROR: Failed during formula length analysis: {e}")
-        return stats, warnings_errors, np.array([])
-
-    return stats, warnings_errors, lengths_arr
-
-
-def analyze_formulas(
-    formulas_path: Path,
-    tokenizer: LaTeXTokenizer,
-    config_max_len: int,
-    percentile_cutoff: float = 95.0,
-) -> Tuple[Dict[str, Any], List[str], np.ndarray]:
-    """Analyzes tokenized lengths and content of formulas."""
-    warnings_errors = []
-    stats = {
-        "max_token_len": 0,
-        "avg_token_len": 0,
-        "median_token_len": 0,
-        "std_token_len": 0,
-        "num_exceeding_config": 0,
-        "num_containing_unk": 0,
-        "total_formulas": 0,
-        "token_counts": Counter(),
-        "longest_formula_idx": -1,
-        "longest_formula_len": 0,
-        "longest_formula_str": "",
-        "percentiles": {},
-        "suggested_cutoff": 0,
-        "shortest_formulas": [],  # Will store (length, idx, formula_text) tuples
-        "longest_formulas": [],  # Will store (length, idx, formula_text) tuples
-    }
-    if not formulas_path.is_file():
-        warnings_errors.append(
-            f"ERROR: Cannot analyze formulas, file not found: {formulas_path}"
-        )
-        return stats, warnings_errors, np.array([])
-
-    token_lengths = []
-    formulas_with_unk = 0
-    token_counter = Counter()
-    longest_len = 0
-    longest_idx = -1
-    longest_str = ""
-
-    # Track shortest and longest formulas
-    shortest_formulas = []  # Will contain (length, idx, formula) tuples
-    longest_formulas = []  # Will contain (length, idx, formula) tuples
-
-    # Number to track
-    top_n = 20
+    # Initialize result dictionary
+    changes = {"added": [], "modified": [], "deleted": []}
 
     try:
-        formulas_content = []
-        with open(formulas_path, "r", encoding="utf-8") as f:
-            formulas_content = [line.strip() for line in f]
-        stats["total_formulas"] = len(formulas_content)
-
-        logger.info("Analyzing formula lengths and tokens (this may take a moment)...")
-        for idx, formula_str in enumerate(
-            tqdm(formulas_content, desc="Analyzing formulas")
-        ):
-            # Tokenize including special tokens for length, but count base tokens
-            formula_base_tokens = formula_str.split()
-            token_counter.update(formula_base_tokens)
-
-            # Check length against config (including START/END)
-            encoded_ids_with_special = tokenizer.encode(
-                formula_str, add_special_tokens=True
-            )
-            current_len = len(encoded_ids_with_special)
-            token_lengths.append(current_len)
-
-            # Update shortest/longest formula tracking
-            if len(shortest_formulas) < top_n:
-                shortest_formulas.append((current_len, idx, formula_str))
-                shortest_formulas.sort()  # Sort by length (first element of tuple)
-            elif current_len < shortest_formulas[-1][0]:
-                shortest_formulas.pop()  # Remove the longest of the shortest
-                shortest_formulas.append((current_len, idx, formula_str))
-                shortest_formulas.sort()  # Sort by length
-
-            if len(longest_formulas) < top_n:
-                longest_formulas.append((current_len, idx, formula_str))
-                longest_formulas.sort(reverse=True)  # Sort by length, descending
-            elif current_len > longest_formulas[-1][0]:
-                longest_formulas.pop()  # Remove the shortest of the longest
-                longest_formulas.append((current_len, idx, formula_str))
-                longest_formulas.sort(reverse=True)  # Sort by length, descending
-
-            if current_len > longest_len:
-                longest_len = current_len
-                longest_idx = idx
-                longest_str = formula_str
-
-            # Check for UNK tokens (using base tokens before special tokens added)
-            encoded_ids_no_special = tokenizer.encode(
-                formula_str, add_special_tokens=False
-            )
-            if tokenizer.unk_token_id in encoded_ids_no_special:
-                formulas_with_unk += 1
-
-        if not token_lengths:
-            warnings_errors.append(
-                "WARNING: No formulas found or processed in the formulas file."
-            )
-            return stats, warnings_errors, np.array([])
-
-        lengths_arr = np.array(token_lengths)
-        stats["max_token_len"] = int(np.max(lengths_arr))
-        stats["avg_token_len"] = float(np.mean(lengths_arr))
-        stats["median_token_len"] = int(np.median(lengths_arr))
-        stats["std_token_len"] = float(np.std(lengths_arr))
-        stats["num_exceeding_config"] = int(np.sum(lengths_arr > config_max_len))
-        stats["num_containing_unk"] = formulas_with_unk
-        stats["token_counts"] = token_counter
-        stats["longest_formula_idx"] = longest_idx
-        stats["longest_formula_len"] = longest_len
-        stats["longest_formula_str"] = longest_str
-        stats["shortest_formulas"] = shortest_formulas
-        stats["longest_formulas"] = longest_formulas
-
-        # Calculate percentiles for distribution analysis
-        percentiles = [50, 75, 90, 95, 99, 99.5, 99.9]
-        for p in percentiles:
-            stats["percentiles"][p] = int(np.percentile(lengths_arr, p))
-
-        # Suggest cutoff based on provided percentile
-        stats["suggested_cutoff"] = int(np.percentile(lengths_arr, percentile_cutoff))
-
-        # Histogram data
-        stats["histogram_bins"] = 50
-        stats["histogram_counts"], stats["histogram_edges"] = np.histogram(
-            lengths_arr, bins=stats["histogram_bins"]
+        # Get the last committed version from Git
+        result = subprocess.run(
+            ["git", "show", "HEAD:" + str(config_path)],
+            capture_output=True,
+            text=True,
+            check=False,
         )
 
-        if stats["max_token_len"] > config_max_len:
-            warnings_errors.append(
-                f"WARNING: Max formula token length ({stats['max_token_len']}) "
-                f"exceeds config max_seq_length ({config_max_len}). "
-                f"{stats['num_exceeding_config']} formulas will be affected (filtered/truncated)."
-            )
-        if stats["num_containing_unk"] > 0:
-            warnings_errors.append(
-                f"WARNING: Found {stats['num_containing_unk']} formulas containing <UNK> tokens. "
-                "Consider adding frequent missing tokens to vocabulary or reviewing formulas."
-            )
+        # If the command failed, the file might not be tracked in Git
+        if result.returncode != 0:
+            return {
+                "error": f"Could not retrieve previous version: {result.stderr.strip()}"
+            }
 
-        # Suggest filter strategy based on distribution
-        if stats["suggested_cutoff"] < config_max_len:
-            warnings_errors.append(
-                f"INFO: Consider using {stats['suggested_cutoff']} as a length cutoff "
-                f"({percentile_cutoff}th percentile), which is less than config max_seq_length ({config_max_len})."
-            )
-        else:
-            warnings_errors.append(
-                f"INFO: The {percentile_cutoff}th percentile length is {stats['suggested_cutoff']}, "
-                f"which exceeds config max_seq_length ({config_max_len}). "
-                f"Consider increasing max_seq_length or using a lower percentile cutoff."
-            )
+        # Parse the last committed version
+        prev_config = yaml.safe_load(result.stdout)
+
+        # Parse the current version
+        with open(config_path, "r") as file:
+            current_config = yaml.safe_load(file)
+
+        # Compare configurations using a recursive function
+        def compare_dicts(prev, curr, path=""):
+            # Check for added or modified fields
+            for key in curr:
+                curr_path = f"{path}.{key}" if path else key
+
+                if key not in prev:
+                    changes["added"].append(curr_path)
+                elif isinstance(curr[key], dict) and isinstance(prev[key], dict):
+                    # Recursively compare nested dictionaries
+                    compare_dicts(prev[key], curr[key], curr_path)
+                elif curr[key] != prev[key]:
+                    changes["modified"].append(
+                        f"{curr_path}: {prev[key]} -> {curr[key]}"
+                    )
+
+            # Check for deleted fields
+            for key in prev:
+                curr_path = f"{path}.{key}" if path else key
+                if key not in curr:
+                    changes["deleted"].append(curr_path)
+
+        # Perform comparison
+        compare_dicts(prev_config, current_config)
+
+        return changes
 
     except Exception as e:
-        warnings_errors.append(f"ERROR: Failed during formula analysis: {e}")
-        return stats, warnings_errors, np.array([])
-
-    return stats, warnings_errors, lengths_arr
+        return {"error": f"Error comparing configs: {str(e)}"}
 
 
-def plot_length_distribution(
-    lengths_arr: np.ndarray,
-    output_dir: Path,
-    cutoff: int = None,
-    config_max: int = None,
-):
-    """Creates a histogram of formula lengths and saves it to a file."""
-    if len(lengths_arr) == 0:
-        logger.error("Cannot plot distribution: no length data available")
-        return
+def summarize_hyperparameter_sweep(output_dir: Union[str, Path]) -> pd.DataFrame:
+    """Read metrics from multiple output directories and summarize results.
 
+    Args:
+        output_dir: Base directory containing output subdirectories
+
+    Returns:
+        DataFrame summarizing hyperparameter sweep results
+    """
+    output_dir = Path(output_dir)
+
+    # Find all subdirectories with metrics.json
+    results = []
+
+    for subdir in output_dir.glob("*"):
+        if not subdir.is_dir():
+            continue
+
+        config_path = subdir / "config.yaml"
+        metrics_path = subdir / "metrics.json"
+
+        if not config_path.exists() or not metrics_path.exists():
+            continue
+
+        try:
+            # Load config and metrics
+            with open(config_path, "r") as f:
+                config = yaml.safe_load(f)
+
+            with open(metrics_path, "r") as f:
+                metrics = json.load(f)
+
+            # Extract hyperparameters of interest
+            experiment_name = subdir.name
+            model_name = config.get("model", {}).get("name", "unknown")
+            batch_size = config.get("data", {}).get("batch_size", 0)
+            learning_rate = config.get("training", {}).get("learning_rate", 0)
+            optimizer = config.get("training", {}).get("optimizer", "unknown")
+
+            if "embedding_dim" in config.get("model", {}):
+                embedding_dim = config["model"]["embedding_dim"]
+            else:
+                embedding_dim = 0
+
+            if "hidden_dim" in config.get("model", {}).get("decoder", {}):
+                hidden_dim = config["model"]["decoder"]["hidden_dim"]
+            else:
+                hidden_dim = 0
+
+            # Extract metrics of interest
+            best_val_loss = metrics.get("best_val_loss", float("inf"))
+            best_val_bleu = metrics.get("best_val_bleu", 0)
+            best_val_accuracy = metrics.get("best_val_accuracy", 0)
+            best_epoch = metrics.get("best_epoch", 0)
+
+            # Combine into a single result
+            result = {
+                "experiment_name": experiment_name,
+                "model_name": model_name,
+                "batch_size": batch_size,
+                "learning_rate": learning_rate,
+                "optimizer": optimizer,
+                "embedding_dim": embedding_dim,
+                "hidden_dim": hidden_dim,
+                "best_val_loss": best_val_loss,
+                "best_val_bleu": best_val_bleu,
+                "best_val_accuracy": best_val_accuracy,
+                "best_epoch": best_epoch,
+            }
+
+            results.append(result)
+
+        except Exception as e:
+            print(f"Error processing {subdir}: {e}")
+
+    # Convert to DataFrame
+    if results:
+        df = pd.DataFrame(results)
+        return df
+    else:
+        return pd.DataFrame(
+            columns=[
+                "experiment_name",
+                "model_name",
+                "batch_size",
+                "learning_rate",
+                "optimizer",
+                "embedding_dim",
+                "hidden_dim",
+                "best_val_loss",
+                "best_val_bleu",
+                "best_val_accuracy",
+                "best_epoch",
+            ]
+        )
+
+
+def snapshot_environment() -> str:
+    """Capture the current Python environment using pip freeze.
+
+    Returns:
+        String containing the output of pip freeze
+    """
     try:
-        plt.figure(figsize=(10, 6))
-
-        # Plot histogram with density=True for normalized view
-        counts, bins, _ = plt.hist(lengths_arr, bins=50, alpha=0.7, density=False)
-
-        # Add vertical lines for cutoffs if provided
-        if cutoff is not None:
-            plt.axvline(
-                x=cutoff, color="r", linestyle="--", label=f"Suggested Cutoff: {cutoff}"
-            )
-
-        if config_max is not None:
-            plt.axvline(
-                x=config_max,
-                color="g",
-                linestyle="--",
-                label=f"Config Max: {config_max}",
-            )
-
-        plt.title("Distribution of Formula Sequence Lengths")
-        plt.xlabel("Sequence Length")
-        plt.ylabel("Count")
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-
-        # Create output directory if it doesn't exist
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / "formula_length_distribution.png"
-
-        plt.savefig(output_file)
-        plt.close()
-
-        logger.info(f"Length distribution plot saved to: {output_file}")
-        return output_file
-
-    except Exception as e:
-        logger.error(f"Failed to create length distribution plot: {e}")
-        return None
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "freeze"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        print(f"Error capturing environment: {e}")
+        return f"Error: {e.stderr}"
 
 
-def verify_model_config(config: Dict[str, Any]) -> List[str]:
-    """Checks consistency within the model configuration."""
-    warnings_errors = []
-    model_cfg = config.get("model", {})
-    model_name = model_cfg.get("name")
-    encoder_cfg = model_cfg.get("encoder", {})
-    decoder_cfg = model_cfg.get("decoder", {})
-    embedding_dim = model_cfg.get("embedding_dim")
+def check_model_consistency(config: Dict) -> List[str]:
+    """Check model configuration for consistency.
 
-    # --- General Checks ---
-    if not model_name:
-        warnings_errors.append("ERROR: 'model.name' is not specified.")
-    if not encoder_cfg:
-        warnings_errors.append("WARNING: 'model.encoder' section missing.")
-    if not decoder_cfg:
-        warnings_errors.append("WARNING: 'model.decoder' section missing.")
-    if not embedding_dim:
-        warnings_errors.append("WARNING: 'model.embedding_dim' is not specified.")
+    Args:
+        config: Dictionary containing the configuration
 
-    # --- Encoder Specific Checks ---
-    expected_height, expected_width = 64, 800
+    Returns:
+        List of consistency warnings
+    """
+    warnings = []
+
+    # Get model configuration
+    model_config = config.get("model", {})
+    model_name = model_config.get("name")
+
     if model_name == "cnn_lstm":
-        cnn_params = encoder_cfg.get("cnn", {})
-        if not cnn_params:
-            warnings_errors.append(
-                "ERROR: Model type is 'cnn_lstm' but 'model.encoder.cnn' section is missing."
-            )
-        else:
-            channels = cnn_params.get("channels")
-            height = cnn_params.get("img_height")
-            width = cnn_params.get("img_width")
+        # Check CNN encoder configuration
+        cnn_config = model_config.get("encoder", {}).get("cnn", {})
+        if cnn_config:
+            # Check channel consistency
+            channels = cnn_config.get("channels")
             if channels != 1:
-                warnings_errors.append(
-                    f"WARNING: CNN channels set to {channels}, expected 1 (Grayscale)."
+                warnings.append(
+                    f"CNN model typically uses grayscale images (channels=1), but config has channels={channels}"
                 )
-            if (height, width) != (expected_height, expected_width):
-                warnings_errors.append(
-                    f"WARNING: CNN input size is ({height}, {width}), expected ({expected_height}, {expected_width})."
-                )
-            if not cnn_params.get("conv_filters"):
-                warnings_errors.append("WARNING: CNN 'conv_filters' not specified.")
-            if not cnn_params.get("kernel_size"):
-                warnings_errors.append("WARNING: CNN 'kernel_size' not specified.")
-            if not cnn_params.get("pool_size"):
-                warnings_errors.append("WARNING: CNN 'pool_size' not specified.")
+
+            # Check kernel size consistency
+            kernel_size = cnn_config.get("kernel_size")
+            if kernel_size and (kernel_size < 3 or kernel_size > 5):
+                warnings.append(f"Unusual kernel size for CNN model: {kernel_size}")
 
     elif model_name == "resnet_lstm":
-        res_params = encoder_cfg.get("resnet", {})
-        if not res_params:
-            warnings_errors.append(
-                "ERROR: Model type is 'resnet_lstm' but 'model.encoder.resnet' section is missing."
-            )
-        else:
-            channels = res_params.get("channels")
-            height = res_params.get("img_height")
-            width = res_params.get("img_width")
+        # Check ResNet encoder configuration
+        resnet_config = model_config.get("encoder", {}).get("resnet", {})
+        if resnet_config:
+            # Check channel consistency
+            channels = resnet_config.get("channels")
             if channels != 3:
-                warnings_errors.append(
-                    f"WARNING: ResNet channels set to {channels}, expected 3 (RGB)."
+                warnings.append(
+                    f"ResNet model typically uses RGB images (channels=3), but config has channels={channels}"
                 )
-            if (height, width) != (expected_height, expected_width):
-                warnings_errors.append(
-                    f"WARNING: ResNet input size is ({height}, {width}), expected ({expected_height}, {expected_width})."
+
+            # Check model name
+            resnet_model = resnet_config.get("model_name")
+            valid_models = [
+                "resnet18",
+                "resnet34",
+                "resnet50",
+                "resnet101",
+                "resnet152",
+            ]
+            if resnet_model not in valid_models:
+                warnings.append(
+                    f"Invalid ResNet model name: {resnet_model}. Should be one of {valid_models}"
                 )
-            if not res_params.get("model_name"):
-                warnings_errors.append("WARNING: ResNet 'model_name' not specified.")
 
-    else:
-        warnings_errors.append(f"ERROR: Unknown 'model.name': {model_name}")
+    # Check decoder configuration
+    decoder_config = model_config.get("decoder", {})
+    if decoder_config:
+        # Check embedding dimension and hidden dimension consistency
+        embedding_dim = model_config.get("embedding_dim")
+        hidden_dim = decoder_config.get("hidden_dim")
 
-    # --- Decoder Specific Checks ---
-    if not decoder_cfg.get("hidden_dim"):
-        warnings_errors.append("WARNING: Decoder 'hidden_dim' not specified.")
-    if decoder_cfg.get("hidden_dim") != embedding_dim and not decoder_cfg.get(
-        "attention"
-    ):
-        warnings_errors.append(
-            f"WARNING: Decoder 'hidden_dim' ({decoder_cfg.get('hidden_dim')}) typically matches 'embedding_dim' ({embedding_dim}) when attention is not used, check decoder input concatenation logic."
-        )
-    if not decoder_cfg.get("lstm_layers"):
-        warnings_errors.append(
-            "INFO: Decoder 'lstm_layers' not specified (defaults likely used)."
-        )
-    if decoder_cfg.get("attention") is None:
-        warnings_errors.append(
-            "INFO: Decoder 'attention' flag not specified (defaults likely used)."
-        )
+        if embedding_dim and hidden_dim and embedding_dim != hidden_dim:
+            warnings.append(
+                f"Embedding dimension ({embedding_dim}) != hidden dimension ({hidden_dim}). This is unusual."
+            )
 
-    return warnings_errors
+        # Check dropout value
+        dropout = decoder_config.get("dropout")
+        if dropout is not None:
+            if dropout <= 0 or dropout >= 0.5:
+                warnings.append(
+                    f"Unusual dropout value: {dropout}. Typical values are between 0.1 and 0.3."
+                )
+
+    # Check training configuration
+    training_config = config.get("training", {})
+    if training_config:
+        # Check learning rate
+        lr = training_config.get("learning_rate")
+        if lr and (lr > 0.1 or lr < 1e-5):
+            warnings.append(
+                f"Unusual learning rate: {lr}. Typical values are between 1e-5 and 1e-2."
+            )
+
+        # Check optimizer and weight decay consistency
+        optimizer = training_config.get("optimizer")
+        weight_decay = training_config.get("weight_decay")
+
+        if optimizer == "adam" and weight_decay and weight_decay > 0.01:
+            warnings.append(
+                f"High weight decay ({weight_decay}) for Adam optimizer. Consider reducing."
+            )
+
+        # Check device
+        device = training_config.get("device")
+        if device not in ["cuda", "cpu", "mps"]:
+            warnings.append(
+                f"Unknown device: {device}. Should be 'cuda', 'cpu', or 'mps'."
+            )
+
+    return warnings
 
 
-def ensure_output_dir(base_dir: str, analysis_type: str) -> Path:
-    """Ensure output directory exists, creating it if necessary.
+def plot_hyperparameter_comparison(
+    sweep_data: pd.DataFrame, output_dir: Path, metric: str = "best_val_bleu"
+) -> None:
+    """Create bar charts comparing hyperparameter performance.
 
     Args:
-        base_dir: Base directory path (can be relative or absolute)
-        analysis_type: Type of analysis (subdirectory name)
-
-    Returns:
-        Path object to the full output directory
+        sweep_data: DataFrame containing hyperparameter sweep results
+        output_dir: Directory to save the output figures
+        metric: Metric to plot (e.g., 'best_val_bleu', 'best_val_loss')
     """
-    if os.path.isabs(base_dir):
-        # If absolute path is provided, use it directly
-        output_dir = Path(base_dir)
-    else:
-        # If relative path, create it under the project root
-        output_dir = Path(os.getcwd()) / base_dir
+    if sweep_data.empty:
+        print("No data to plot")
+        return
 
-    # Add analysis type subdirectory
-    if analysis_type:
-        output_dir = output_dir / analysis_type
+    # Create plots for different hyperparameters
+    for param in [
+        "model_name",
+        "batch_size",
+        "learning_rate",
+        "optimizer",
+        "embedding_dim",
+        "hidden_dim",
+    ]:
+        if param in sweep_data.columns:
+            # Create figure
+            plt.figure(figsize=(10, 6))
 
-    # Ensure directory exists
-    output_dir.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Output directory set to: {output_dir}")
+            # Group by the parameter and get mean of the metric
+            grouped = sweep_data.groupby(param)[metric].mean().reset_index()
 
-    return output_dir
+            # Sort for better visualization
+            grouped = grouped.sort_values(metric, ascending=False)
 
+            # Create bar chart
+            plt.bar(grouped[param].astype(str), grouped[metric])
 
-# --- Main Analysis Function ---
+            # Add labels and title
+            plt.xlabel(param)
+            plt.ylabel(metric)
+            plt.title(f"Effect of {param} on {metric}")
+            plt.xticks(rotation=45)
+            plt.grid(True, alpha=0.3)
+
+            # Save figure
+            plt.tight_layout()
+            plt.savefig(output_dir / f"{param}_comparison.png")
+            plt.close()
 
 
 def analyze_project(
     config_path: str,
-    percentile_cutoff: float = 95.0,
-    plot_dir: str = None,
+    base_dir: str = ".",
+    output_dir: str = "outputs/project_analysis",
     detailed: bool = False,
-):
-    """Runs the full project analysis."""
-    logger.info(f"--- Starting Project Analysis ({config_path}) ---")
-    all_warnings_errors: List[str] = []
+) -> None:
+    """Analyze the img2latex project configuration and status.
 
-    # 1. Load Config
-    config = load_config(Path(config_path))
-    if config is None:
-        logger.critical("Analysis cannot proceed without a valid config file.")
-        sys.exit(1)
+    Args:
+        config_path: Path to the YAML config file
+        base_dir: Base directory for the project
+        output_dir: Directory to save analysis results
+        detailed: Whether to perform detailed analysis
+    """
+    # Ensure output directory exists
+    output_path = ensure_output_dir(output_dir, "project")
 
-    # Setup output directory
-    output_dir = ensure_output_dir(plot_dir or "outputs", "formula_analysis")
+    # Record analysis results
+    results = {}
 
-    # 2. Check Paths
-    logger.info("--- Verifying Paths ---")
-    path_warnings = check_paths(config)
-    all_warnings_errors.extend(path_warnings)
-    for msg in path_warnings:
-        logger.warning(msg) if "WARNING" in msg else logger.error(msg)
-    if any("ERROR" in msg for msg in path_warnings):
-        logger.critical("Aborting due to critical path errors.")
-        sys.exit(1)
-    logger.info("Path verification complete.")
+    # Load and validate configuration
+    print(f"Loading configuration from {config_path}...")
+    try:
+        config = load_config(config_path)
+        results["config"] = {"status": "loaded", "file_path": str(config_path)}
 
-    # 3. Initialize & Analyze Tokenizer/Formulas
-    logger.info("--- Analyzing Tokenizer & Formula Lengths ---")
-    formulas_path = Path(config["data"]["data_dir"]) / config["data"]["formulas_file"]
-    config_max_seq_len = config.get("data", {}).get(
-        "max_seq_length", 150
-    )  # Default if missing
-    formula_stats = {}
-    vocab_size = 0
-    lengths_arr = np.array([])
+        # Validate configuration
+        validation_errors = validate_config(config)
+        if validation_errors:
+            results["validation"] = {"status": "failed", "errors": validation_errors}
+            print(
+                f"Configuration validation failed with {len(validation_errors)} errors"
+            )
+        else:
+            results["validation"] = {"status": "passed"}
+            print("Configuration validation passed")
 
-    if formulas_path.is_file():
+    except Exception as e:
+        results["config"] = {"status": "failed", "error": str(e)}
+        print(f"Failed to load configuration: {e}")
+
+        # Save results and exit early
+        with open(output_path / "project_analysis.json", "w") as f:
+            json.dump(results, f, indent=2)
+        return
+
+    # Check for missing files
+    try:
+        missing_files = check_missing_files(config, base_dir)
+        has_missing = any(len(files) > 0 for files in missing_files.values())
+
+        results["missing_files"] = {
+            "status": "found" if has_missing else "none",
+            "files": missing_files,
+        }
+
+        if has_missing:
+            print("Missing files found:")
+            for category, files in missing_files.items():
+                if files:
+                    print(f"  {category}:")
+                    for file in files:
+                        print(f"    - {file}")
+        else:
+            print("No missing files found")
+
+    except Exception as e:
+        results["missing_files"] = {"status": "error", "error": str(e)}
+        print(f"Error checking for missing files: {e}")
+
+    # Compare config with Git version
+    if detailed:
         try:
-            # Init tokenizer (will fit inside)
-            tokenizer = LaTeXTokenizer(max_sequence_length=config_max_seq_len)
-            tokenizer.fit_on_formulas_file(str(formulas_path))  # fit needs string path
-            vocab_size = tokenizer.vocab_size
-            logger.info(f"Tokenizer Initialized. Vocabulary Size: {vocab_size}")
+            config_changes = compare_config_with_git(config_path)
 
-            # Analyze lengths
-            if detailed:
-                formula_stats, formula_warnings, lengths_arr = analyze_formulas(
-                    formulas_path, tokenizer, config_max_seq_len, percentile_cutoff
-                )
+            if "error" in config_changes:
+                results["git_comparison"] = {
+                    "status": "error",
+                    "error": config_changes["error"],
+                }
+                print(f"Error comparing with Git: {config_changes['error']}")
             else:
-                formula_stats, formula_warnings, lengths_arr = analyze_formula_lengths(
-                    formulas_path, tokenizer, config_max_seq_len, percentile_cutoff
+                has_changes = any(
+                    len(changes) > 0 for changes in config_changes.values()
                 )
 
-            all_warnings_errors.extend(formula_warnings)
-            for msg in formula_warnings:
-                logger.warning(msg) if "WARNING" in msg else logger.error(msg)
+                results["git_comparison"] = {
+                    "status": "changed" if has_changes else "unchanged",
+                    "changes": config_changes,
+                }
 
-            # Generate distribution plot
-            if len(lengths_arr) > 0:
-                plot_file = plot_length_distribution(
-                    lengths_arr,
-                    output_dir,
-                    cutoff=formula_stats.get("suggested_cutoff"),
-                    config_max=config_max_seq_len,
-                )
-                if plot_file:
-                    all_warnings_errors.append(
-                        f"INFO: Length distribution plot saved to: {plot_file}"
-                    )
-
-            # Save histogram data as CSV for further analysis
-            if (
-                "histogram_counts" in formula_stats
-                and "histogram_edges" in formula_stats
-            ):
-                try:
-                    hist_file = output_dir / "length_histogram_data.csv"
-                    with open(hist_file, "w") as f:
-                        f.write("bin_start,bin_end,count\n")
-                        for i, count in enumerate(formula_stats["histogram_counts"]):
-                            bin_start = formula_stats["histogram_edges"][i]
-                            bin_end = formula_stats["histogram_edges"][i + 1]
-                            f.write(f"{bin_start:.1f},{bin_end:.1f},{count}\n")
-                    logger.info(f"Histogram data saved to: {hist_file}")
-                    all_warnings_errors.append(
-                        f"INFO: Histogram data saved to: {hist_file}"
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to save histogram data: {e}")
+                if has_changes:
+                    print("Configuration changes since last commit:")
+                    for change_type, changes in config_changes.items():
+                        if changes:
+                            print(f"  {change_type.capitalize()}:")
+                            for change in changes:
+                                print(f"    - {change}")
+                else:
+                    print("No configuration changes since last commit")
 
         except Exception as e:
-            logger.error(f"Error during tokenizer/formula analysis: {e}")
-            all_warnings_errors.append(f"ERROR: Tokenizer/formula analysis failed: {e}")
-    else:
-        logger.error(
-            "Skipping tokenizer/formula analysis as formulas file was not found."
-        )
-        all_warnings_errors.append(
-            "ERROR: Formulas file missing, cannot analyze lengths or vocab."
-        )
+            results["git_comparison"] = {"status": "error", "error": str(e)}
+            print(f"Error comparing with Git: {e}")
 
-    # 4. Verify Model Config Consistency
-    logger.info("--- Verifying Model Configuration ---")
-    model_warnings = verify_model_config(config)
-    all_warnings_errors.extend(model_warnings)
-    for msg in model_warnings:
-        logger.warning(msg) if "WARNING" in msg else logger.error(msg)
+    # Summarize hyperparameter sweep
+    if detailed:
+        print("Analyzing hyperparameter sweep results...")
+        try:
+            # Default location for output directories
+            outputs_dir = Path(base_dir) / "outputs"
 
-    # 5. Print Summary Report
-    print("\n" + "=" * 30 + " Analysis Summary " + "=" * 30)
+            # Summarize results
+            sweep_results = summarize_hyperparameter_sweep(outputs_dir)
 
-    print("\n[Configuration]")
-    print(f"  Config File:          {config_path}")
-    print(f"  Model Type:           {config.get('model', {}).get('name', 'N/A')}")
-    print(f"  Target Device:        {config.get('training', {}).get('device', 'N/A')}")
-    print(f"  Base Data Directory:  {config.get('data', {}).get('data_dir', 'N/A')}")
-    img_dir = config.get("data", {}).get("img_dir", "N/A")
-    print(f"  Image Directory:      {img_dir} (Expected: img)")
-    print(f"  Num Workers:          {config.get('data', {}).get('num_workers', 'N/A')}")
+            if not sweep_results.empty:
+                # Save to CSV
+                sweep_csv_path = output_path / "hyperparameter_sweep.csv"
+                sweep_results.to_csv(sweep_csv_path, index=False)
 
-    print("\n[Tokenizer & Formulas]")
-    print(f"  Config max_seq_len:   {config_max_seq_len}")
-    if formula_stats and tokenizer:
-        # Create Rich table for formula statistics
-        table = Table(title="Formula Length Statistics")
-        table.add_column("Statistic", style="cyan")
-        table.add_column("Value", style="green")
-
-        table.add_row("Vocabulary Size", str(vocab_size))
-
-        if detailed:
-            table.add_row(
-                "Special Tokens", str(list(tokenizer.special_tokens.values()))
-            )
-            table.add_row(
-                "Total Formulas", str(formula_stats.get("total_formulas", "N/A"))
-            )
-            table.add_row(
-                "Max Token Length", str(formula_stats.get("max_token_len", "N/A"))
-            )
-            table.add_row(
-                "Average Token Length", f"{formula_stats.get('avg_token_len', 0):.1f}"
-            )
-            table.add_row(
-                "Median Token Length", str(formula_stats.get("median_token_len", "N/A"))
-            )
-            table.add_row(
-                "Std Dev Token Length", f"{formula_stats.get('std_token_len', 0):.2f}"
-            )
-            table.add_row(
-                "Num > config_max_len",
-                str(formula_stats.get("num_exceeding_config", "N/A")),
-            )
-            table.add_row(
-                "Num w/ <UNK> Tokens",
-                str(formula_stats.get("num_containing_unk", "N/A")),
-            )
-        else:
-            table.add_row(
-                "Total Formulas", str(formula_stats.get("total_formulas", "N/A"))
-            )
-            table.add_row(
-                "Max Length Found", str(formula_stats.get("max_found_len", "N/A"))
-            )
-            table.add_row("Average Length", f"{formula_stats.get('avg_len', 0):.1f}")
-            table.add_row("Median Length", str(formula_stats.get("median_len", "N/A")))
-            table.add_row("Std Dev Length", f"{formula_stats.get('std_len', 0):.2f}")
-            table.add_row(
-                "Num > config_max_len", str(formula_stats.get("num_exceeding", "N/A"))
-            )
-
-        # Add percentile information
-        table.add_section()
-        for p, val in formula_stats.get("percentiles", {}).items():
-            table.add_row(f"{p}th Percentile", str(val))
-
-        table.add_section()
-        table.add_row(
-            "Suggested Cutoff",
-            f"{formula_stats.get('suggested_cutoff', 'N/A')} (at {percentile_cutoff}th percentile)",
-        )
-
-        console.print(table)
-
-        if detailed and formula_stats.get("token_counts"):
-            most_common = formula_stats["token_counts"].most_common(10)
-            print(
-                f"  Most Common Tokens:   {', '.join([f'{t}({c})' for t, c in most_common])}"
-            )
-
-        if detailed and formula_stats.get("longest_formula_idx", -1) >= 0:
-            print(
-                f"  Longest Formula (idx {formula_stats['longest_formula_idx']}, len {formula_stats['longest_formula_len']}):"
-            )
-            print(
-                f"    '{formula_stats.get('longest_formula_str', '')[:100]}...'"
-            )  # Print start of longest
-
-        if "histogram_counts" in formula_stats:
-            print("\nLength Distribution Summary:")
-            max_bin_index = np.argmax(formula_stats["histogram_counts"])
-            lower_edge = int(formula_stats["histogram_edges"][max_bin_index])
-            upper_edge = int(formula_stats["histogram_edges"][max_bin_index + 1])
-            print(f"  Most common length range: {lower_edge} - {upper_edge} tokens")
-
-        # Add extreme formulas output
-        if "shortest_formulas" in formula_stats and "longest_formulas" in formula_stats:
-            # Save extreme formulas to file
-            extremes_file = output_dir / "extreme_formulas.txt"
-            try:
-                with open(extremes_file, "w") as f:
-                    f.write("=== TOP 20 SHORTEST FORMULAS ===\n\n")
-                    for i, (length, idx, formula) in enumerate(
-                        formula_stats["shortest_formulas"]
-                    ):
-                        f.write(f"#{i + 1}: Length={length}, Index={idx}\n")
-                        f.write(f"{formula}\n\n")
-
-                    f.write("\n\n=== TOP 20 LONGEST FORMULAS ===\n\n")
-                    for i, (length, idx, formula) in enumerate(
-                        formula_stats["longest_formulas"]
-                    ):
-                        f.write(f"#{i + 1}: Length={length}, Index={idx}\n")
-                        f.write(f"{formula}\n\n")
-
-                logger.info(f"Extreme formulas saved to: {extremes_file}")
-                all_warnings_errors.append(
-                    f"INFO: Extreme formulas saved to: {extremes_file}"
+                # Create plots
+                plot_hyperparameter_comparison(
+                    sweep_results, output_path, "best_val_bleu"
                 )
-            except Exception as e:
-                logger.error(f"Failed to save extreme formulas: {e}")
+                plot_hyperparameter_comparison(
+                    sweep_results, output_path, "best_val_loss"
+                )
 
-            # Print extreme formulas summary to console
-            print("\n[Top 20 Shortest Formulas]")
-            table_short = Table(title="Shortest Formulas by Token Length")
-            table_short.add_column("Rank", style="cyan")
-            table_short.add_column("Length", style="green")
-            table_short.add_column("Index", style="blue")
-            table_short.add_column("Formula", style="magenta")
+                results["hyperparameter_sweep"] = {
+                    "status": "analyzed",
+                    "num_experiments": len(sweep_results),
+                    "summary_path": str(sweep_csv_path),
+                }
 
-            for i, (length, idx, formula) in enumerate(
-                formula_stats["shortest_formulas"]
-            ):
-                # Truncate formula if too long
-                display_formula = formula if len(formula) < 50 else formula[:47] + "..."
-                table_short.add_row(f"#{i + 1}", str(length), str(idx), display_formula)
+                print(
+                    f"Hyperparameter sweep analyzed ({len(sweep_results)} experiments)"
+                )
+                print(f"Summary saved to {sweep_csv_path}")
+            else:
+                results["hyperparameter_sweep"] = {
+                    "status": "empty",
+                    "message": "No experiment results found",
+                }
+                print("No hyperparameter sweep results found")
 
-            console.print(table_short)
+        except Exception as e:
+            results["hyperparameter_sweep"] = {"status": "error", "error": str(e)}
+            print(f"Error analyzing hyperparameter sweep: {e}")
 
-            print("\n[Top 20 Longest Formulas]")
-            table_long = Table(title="Longest Formulas by Token Length")
-            table_long.add_column("Rank", style="cyan")
-            table_long.add_column("Length", style="green")
-            table_long.add_column("Index", style="blue")
-            table_long.add_column("Formula (truncated)", style="magenta")
+    # Snapshot environment
+    print("Capturing environment snapshot...")
+    try:
+        env_snapshot = snapshot_environment()
+        env_path = output_path / "environment_snapshot.txt"
 
-            for i, (length, idx, formula) in enumerate(
-                formula_stats["longest_formulas"]
-            ):
-                # Always truncate formula for display
-                display_formula = formula[:47] + "..."
-                table_long.add_row(f"#{i + 1}", str(length), str(idx), display_formula)
+        with open(env_path, "w") as f:
+            f.write(env_snapshot)
 
-            console.print(table_long)
-    else:
-        print("  (Analysis skipped due to missing formulas file)")
+        results["environment"] = {"status": "captured", "snapshot_path": str(env_path)}
 
-    print("\n[Model Parameters (from Config)]")
-    model_name = config.get("model", {}).get("name", "N/A")
-    if model_name == "cnn_lstm":
-        cnn_params = config.get("model", {}).get("encoder", {}).get("cnn", {})
-        print("  Encoder (CNN):")
-        print(
-            f"    Input Size (HxWxC): {cnn_params.get('img_height', 'N/A')}x{cnn_params.get('img_width', 'N/A')}x{cnn_params.get('channels', 'N/A')} (Expected 64x800x1)"
-        )
-        print(f"    Conv Filters:       {cnn_params.get('conv_filters', 'N/A')}")
-        print(f"    Kernel Size:        {cnn_params.get('kernel_size', 'N/A')}")
-        print(f"    Pool Size:          {cnn_params.get('pool_size', 'N/A')}")
-        print(f"    Padding:            {cnn_params.get('padding', 'N/A')}")
-    elif model_name == "resnet_lstm":
-        res_params = config.get("model", {}).get("encoder", {}).get("resnet", {})
-        print("  Encoder (ResNet):")
-        print(
-            f"    Input Size (HxWxC): {res_params.get('img_height', 'N/A')}x{res_params.get('img_width', 'N/A')}x{res_params.get('channels', 'N/A')} (Expected 64x800x3)"
-        )
-        print(f"    ResNet Model:       {res_params.get('model_name', 'N/A')}")
-        print(f"    Freeze Backbone:    {res_params.get('freeze_backbone', 'N/A')}")
-    else:
-        print(f"  Encoder:              Unknown type '{model_name}'")
+        print(f"Environment snapshot saved to {env_path}")
 
-    dec_params = config.get("model", {}).get("decoder", {})
-    print("  Decoder (LSTM):")
+    except Exception as e:
+        results["environment"] = {"status": "error", "error": str(e)}
+        print(f"Error capturing environment: {e}")
+
+    # Check model consistency
+    if "config" in results and results["config"]["status"] == "loaded":
+        try:
+            consistency_warnings = check_model_consistency(config)
+
+            results["model_consistency"] = {
+                "status": "warnings" if consistency_warnings else "consistent",
+                "warnings": consistency_warnings,
+            }
+
+            if consistency_warnings:
+                print("Model consistency warnings:")
+                for warning in consistency_warnings:
+                    print(f"  - {warning}")
+            else:
+                print("Model configuration is consistent")
+
+        except Exception as e:
+            results["model_consistency"] = {"status": "error", "error": str(e)}
+            print(f"Error checking model consistency: {e}")
+
+    # Save analysis results
+    with open(output_path / "project_analysis.json", "w") as f:
+        json.dump(results, f, indent=2)
+
     print(
-        f"    Embedding Dim:      {config.get('model', {}).get('embedding_dim', 'N/A')}"
+        f"Project analysis complete. Results saved to {output_path / 'project_analysis.json'}"
     )
-    print(f"    Hidden Dim:         {dec_params.get('hidden_dim', 'N/A')}")
-    print(f"    LSTM Layers:        {dec_params.get('lstm_layers', 'N/A')}")
-    print(f"    Dropout:            {dec_params.get('dropout', 'N/A')}")
-    print(f"    Attention:          {dec_params.get('attention', 'N/A')}")
 
-    print("\n[Training Parameters (from Config)]")
-    train_params = config.get("training", {})
-    print(f"  Optimizer:            {train_params.get('optimizer', 'N/A')}")
-    print(f"  Learning Rate:        {train_params.get('learning_rate', 'N/A')}")
-    print(f"  Weight Decay:         {train_params.get('weight_decay', 'N/A')}")
-    print(f"  Epochs:               {train_params.get('epochs', 'N/A')}")
-    print(
-        f"  Early Stopping:       {train_params.get('early_stopping_patience', 'N/A')}"
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Analyze the img2latex project configuration and status"
     )
-    print(f"  Gradient Clipping:    {train_params.get('clip_grad_norm', 'N/A')}")
-
-    print("\n[Analysis Issues Found]")
-    if not all_warnings_errors:
-        print("  ✅ No major issues detected.")
-    else:
-        print(f"  Detected {len(all_warnings_errors)} potential issue(s):")
-        for i, msg in enumerate(all_warnings_errors):
-            level = (
-                msg.split(":")[0] if ":" in msg else "INFO"
-            )  # ERROR or WARNING or INFO
-            icon = "❌" if level == "ERROR" else "⚠️" if level == "WARNING" else "ℹ️"
-            print(f"    {icon} {i + 1}. {msg}")
-
-    print("=" * 78)
-    logger.info("--- Project Analysis Complete ---")
-
-
-@app.command()
-def main(
-    config: str = typer.Option(
-        "img2latex/configs/config.yaml",
-        "--config",
-        "-c",
-        help="Path to the configuration YAML file.",
-    ),
-    percentile_cutoff: float = typer.Option(
-        95.0,
-        "--cutoff",
-        "-p",
-        help="Percentile to suggest as length cutoff (default: 95.0)",
-        min=1.0,
-        max=100.0,
-    ),
-    plot_dir: str = typer.Option(
-        "outputs",
+    parser.add_argument(
+        "--config-path", required=True, help="Path to the YAML config file"
+    )
+    parser.add_argument(
+        "--base-dir", default=".", help="Base directory for the project"
+    )
+    parser.add_argument(
         "--output-dir",
-        "-o",
-        help="Base directory for saving analysis outputs",
-    ),
-    detailed: bool = typer.Option(
-        False,
+        default="outputs/project_analysis",
+        help="Directory to save analysis results",
+    )
+    parser.add_argument(
         "--detailed",
-        "-d",
-        help="Enable detailed analysis (more comprehensive but slower)",
-    ),
-):
-    """Analyze img2latex project configuration and data."""
-    config_file_path = Path(config)
+        action="store_true",
+        help="Perform detailed analysis (Git comparison, hyperparameter sweep)",
+    )
 
-    # Attempt to make path relative to CWD if it doesn't exist as absolute/relative
-    if not config_file_path.exists():
-        logger.warning(
-            f"Config path '{config_file_path}' not found directly. Trying relative to current directory..."
-        )
-        config_file_path = Path.cwd() / config
-        if not config_file_path.exists():
-            logger.error(f"Config file '{config}' not found relative to CWD either.")
-            sys.exit(1)
-        else:
-            logger.info(f"Found config file relative to CWD: {config_file_path}")
+    args = parser.parse_args()
 
-    analyze_project(str(config_file_path), percentile_cutoff, plot_dir, detailed)
+    analyze_project(args.config_path, args.base_dir, args.output_dir, args.detailed)
 
 
 if __name__ == "__main__":
-    app()
+    main()

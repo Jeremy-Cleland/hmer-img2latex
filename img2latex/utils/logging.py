@@ -214,6 +214,9 @@ def configure_logging(cfg) -> logging.Logger:
 
         # Use the path manager to get the experiment directory
         log_dir = path_manager.get_log_dir(experiment_name)
+        print(
+            f"[DEBUG] configure_logging: experiment name '{experiment_name}', writing logs to {log_dir}"
+        )
     except (ImportError, AttributeError):
         # Fallback if path_manager isn't available
         from pathlib import Path
@@ -225,6 +228,9 @@ def configure_logging(cfg) -> logging.Logger:
         )
         log_dir = Path(output_dir) / experiment_name / "logs"
         os.makedirs(log_dir, exist_ok=True)
+        print(
+            f"[DEBUG] configure_logging fallback: experiment name '{experiment_name}', writing logs to {log_dir}"
+        )
 
     # Create log filename based on command
     log_file = "train.log"

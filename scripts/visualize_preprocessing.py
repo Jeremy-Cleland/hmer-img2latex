@@ -1,268 +1,344 @@
 #!/usr/bin/env python
 """
-Script to visualize the image preprocessing pipeline used in the img2latex project.
-Shows each step of the transformation process.
+Script to visualize the preprocessing steps for images in the latex recognition pipeline.
+
+Features:
+- Pad image to fixed width
+- Display tensor visualization
+- Show preprocessing steps with annotations
 """
 
-import glob
-import os
-import random
-import sys
 from pathlib import Path
+from typing import Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torchvision.transforms as transforms
-from matplotlib.gridspec import GridSpec
+import typer
 from PIL import Image
-from torchvision.transforms import functional as F
+from utils import ensure_output_dir
+
+# Create Typer app
+app = typer.Typer(help="Visualize preprocessing steps for images")
 
 
-def ensure_output_dir(base_dir: str, analysis_type: str) -> Path:
-    """Ensure output directory exists, creating it if necessary.
+def pad_image(img: np.ndarray, target_width: int, pad_value: int = 255) -> np.ndarray:
+    """Pad image to target width.
 
     Args:
-        base_dir: Base directory path (can be relative or absolute)
-        analysis_type: Type of analysis (subdirectory name)
+        img: Input image array
+        target_width: Desired width after padding
+        pad_value: Value to use for padding (default: 255 for white)
 
     Returns:
-        Path object to the full output directory
+        Padded image array
     """
-    if os.path.isabs(base_dir):
-        # If absolute path is provided, use it directly
-        output_dir = Path(base_dir)
+    height, width = img.shape[:2]
+
+    # No padding needed if image is already wider than target
+    if width >= target_width:
+        return img
+
+    # Calculate padding
+    pad_width = target_width - width
+
+    # Create padded image
+    if len(img.shape) == 3:  # Color image
+        padded_img = (
+            np.ones((height, target_width, img.shape[2]), dtype=img.dtype) * pad_value
+        )
+        padded_img[:, :width, :] = img
+    else:  # Grayscale image
+        padded_img = np.ones((height, target_width), dtype=img.dtype) * pad_value
+        padded_img[:, :width] = img
+
+    return padded_img
+
+
+def show_image_tensor(
+    ax: plt.Axes,
+    tensor: Union[torch.Tensor, np.ndarray],
+    title: str = "",
+    cmap: Optional[str] = None,
+) -> None:
+    """Display image tensor on a matplotlib axes.
+
+    Args:
+        ax: Matplotlib axes to plot on
+        tensor: Image tensor or array to display
+        title: Title for the plot
+        cmap: Colormap to use (default: None, which uses grayscale for 1-channel, RGB for 3-channel)
+    """
+    # Convert tensor to numpy if needed
+    if isinstance(tensor, torch.Tensor):
+        if tensor.is_cuda:
+            tensor = tensor.cpu()
+        if tensor.requires_grad:
+            tensor = tensor.detach()
+        img_array = tensor.numpy()
     else:
-        # If relative path, create it under the project root
-        output_dir = Path(os.getcwd()) / base_dir
+        img_array = tensor
 
-    # Add analysis type subdirectory
-    if analysis_type:
-        output_dir = output_dir / analysis_type
+    # Squeeze singleton dimensions (e.g., batch size of 1)
+    img_array = np.squeeze(img_array)
 
-    # Ensure directory exists
-    output_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Output directory set to: {output_dir}")
+    # Handle channel dimension for plotting
+    if len(img_array.shape) == 3:
+        # Check if channels-first format (C,H,W)
+        if img_array.shape[0] in [1, 3]:
+            # Convert from (C,H,W) to (H,W,C)
+            img_array = np.transpose(img_array, (1, 2, 0))
 
-    return output_dir
+        # If single channel in last dimension, squeeze it
+        if img_array.shape[2] == 1:
+            img_array = np.squeeze(img_array, axis=2)
 
+    # Display image
+    ax.imshow(img_array, cmap=cmap)
 
-def pad_image(img, target_width=800, pad_value=255):
-    """Pad an image to the target width with white pixels."""
-    width, height = img.size
-    padding = (0, 0, target_width - width, 0)  # left, top, right, bottom
-    return F.pad(img, padding, pad_value)
-
-
-def show_image_tensor(ax, tensor, title=None, cmap=None):
-    """Display a tensor as an image."""
-    if tensor.dim() == 4:  # batch dimension
-        tensor = tensor[0]
-
-    if tensor.dim() == 3:
-        if tensor.size(0) == 1:  # grayscale
-            img = tensor.squeeze(0).cpu().numpy()
-            cmap = "gray"
-        else:  # RGB
-            img = tensor.permute(1, 2, 0).cpu().numpy()
-            # If normalized to [-1, 1], convert back to [0, 1]
-            if img.min() < 0:
-                img = (img + 1) / 2
-    else:
-        img = tensor.cpu().numpy()
-
-    # Clip to valid range
-    img = np.clip(img, 0, 1)
-
-    ax.imshow(img, cmap=cmap)
-    ax.axis("off")
+    # Add title if provided
     if title:
         ax.set_title(title)
 
+    # Remove axes
+    ax.axis("off")
 
-def create_preprocessing_visualization(
-    image_path, output_path, bg_color="#121212", cnn_mode=True
-):
-    """
-    Create a visualization of the preprocessing pipeline for a single image.
+
+def get_image_stats(
+    image_folder: Union[str, Path], num_samples: int = 1000
+) -> Tuple[float, float, float, float]:
+    """Get average statistics for images in a folder.
 
     Args:
-        image_path: Path to the input image
-        output_path: Path to save the visualization
-        bg_color: Background color for the plot
-        cnn_mode: Whether to show CNN (grayscale) or ResNet (RGB) preprocessing
+        image_folder: Path to folder with images
+        num_samples: Maximum number of images to sample
+
+    Returns:
+        Tuple of (mean_width, mean_height, mean_aspect_ratio, std_aspect_ratio)
     """
-    # Set style for plots
-    plt.rcParams["axes.facecolor"] = bg_color
-    plt.rcParams["figure.facecolor"] = bg_color
-    plt.rcParams["text.color"] = "white"
-    plt.rcParams["axes.labelcolor"] = "white"
-    plt.rcParams["xtick.color"] = "white"
-    plt.rcParams["ytick.color"] = "white"
+    image_folder = Path(image_folder)
+    image_files = list(image_folder.glob("*.png"))
 
-    # Create figure with dark background
-    fig = plt.figure(figsize=(15, 10), facecolor=bg_color)
-    gs = GridSpec(2, 3, figure=fig)
+    # Sample image files if more than num_samples
+    if len(image_files) > num_samples:
+        import random
 
-    # Load original image
-    image = Image.open(image_path)
-    original_width, original_height = image.size
+        random.shuffle(image_files)
+        image_files = image_files[:num_samples]
 
-    # Step 1: Original Image
-    ax1 = fig.add_subplot(gs[0, 0])
-    ax1.imshow(np.array(image))
-    ax1.set_title(
-        f"Original Image\n({original_width}x{original_height}px, RGB)", color="white"
-    )
-    ax1.axis("off")
+    widths = []
+    heights = []
+    aspect_ratios = []
 
-    # Step 2: Resize to fixed height (64px)
-    new_height = 64
-    new_width = int(original_width * (new_height / original_height))
-    resized_image = image.resize((new_width, new_height), Image.BILINEAR)
+    for img_path in image_files:
+        try:
+            with Image.open(img_path) as img:
+                width, height = img.size
+                widths.append(width)
+                heights.append(height)
+                aspect_ratios.append(width / height)
+        except Exception as e:
+            print(f"Error processing {img_path}: {e}")
 
-    ax2 = fig.add_subplot(gs[0, 1])
-    ax2.imshow(np.array(resized_image))
-    ax2.set_title(f"Fixed Height\n({new_width}x{new_height}px, RGB)", color="white")
-    ax2.axis("off")
+    if not widths:
+        return 0, 0, 0, 0
 
-    # Step 3: Pad to fixed width (800px)
-    padded_image = pad_image(resized_image, target_width=800)
+    mean_width = sum(widths) / len(widths)
+    mean_height = sum(heights) / len(heights)
+    mean_aspect_ratio = sum(aspect_ratios) / len(aspect_ratios)
+    std_aspect_ratio = (
+        sum((r - mean_aspect_ratio) ** 2 for r in aspect_ratios) / len(aspect_ratios)
+    ) ** 0.5
 
-    ax3 = fig.add_subplot(gs[0, 2])
-    ax3.imshow(np.array(padded_image))
-    ax3.set_title(f"Fixed Width (Padded)\n(800x{new_height}px, RGB)", color="white")
-    ax3.axis("off")
+    return mean_width, mean_height, mean_aspect_ratio, std_aspect_ratio
 
-    # Step 4: Color conversion (for CNN) or keep RGB (for ResNet)
-    if cnn_mode:
-        # Convert to grayscale
-        converted_image = padded_image.convert("L")
-        color_mode_text = "Grayscale"
-        channels = 1
-    else:
-        # Keep as RGB
-        converted_image = padded_image
-        color_mode_text = "RGB"
-        channels = 3
 
-    ax4 = fig.add_subplot(gs[1, 0])
-    ax4.imshow(np.array(converted_image), cmap="gray" if cnn_mode else None)
-    ax4.set_title(
-        f"Color Conversion\n(800x{new_height}px, {color_mode_text})", color="white"
-    )
-    ax4.axis("off")
+def create_preprocessing_visualization(
+    image_path: Union[str, Path],
+    output_path: Union[str, Path],
+    image_folder: Optional[Union[str, Path]] = None,
+    bg_color: str = "white",
+    cnn_mode: bool = True,
+) -> None:
+    """Create visualization of preprocessing steps.
 
-    # Step 5: Convert to tensor and normalize to [0, 1]
-    tensor_transform = transforms.ToTensor()
-    tensor_image = tensor_transform(converted_image)
+    Args:
+        image_path: Path to input image
+        output_path: Path to save visualization
+        image_folder: Path to folder with similar images (for stats)
+        bg_color: Background color for the plot
+        cnn_mode: Whether to use CNN mode (grayscale) or ResNet mode (RGB)
+    """
+    # Load the image
+    img = Image.open(image_path)
 
-    ax5 = fig.add_subplot(gs[1, 1])
-    show_image_tensor(
-        ax5,
-        tensor_image,
-        title=f"ToTensor Normalization\n[0, 1] range, {channels} channel{'s' if channels > 1 else ''}",
-        cmap="gray" if cnn_mode else None,
-    )
-
-    # Step 6: Apply channel-specific normalization
-    if cnn_mode:
-        # For grayscale (CNN)
-        norm_transform = transforms.Normalize(mean=[0.5], std=[0.5])
-    else:
-        # For RGB (ResNet)
-        norm_transform = transforms.Normalize(
-            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+    # Get dataset stats if folder provided
+    stats_text = ""
+    if image_folder:
+        mean_width, mean_height, mean_aspect_ratio, std_aspect_ratio = get_image_stats(
+            image_folder
+        )
+        stats_text = (
+            f"Dataset stats: Mean size: {mean_width:.1f}x{mean_height:.1f}, "
+            f"Mean aspect ratio: {mean_aspect_ratio:.2f}±{std_aspect_ratio:.2f}"
         )
 
-    normalized_image = norm_transform(tensor_image)
+    # Create a figure with 2 rows: CNN and ResNet preprocessing
+    fig, axes = plt.subplots(2, 4, figsize=(16, 8), facecolor=bg_color)
 
-    ax6 = fig.add_subplot(gs[1, 2])
-    # For visualization, we need to denormalize
-    if cnn_mode:
-        # Denormalize from [-1, 1] back to [0, 1] for display
-        denorm_img = normalized_image * 0.5 + 0.5
-    else:
-        # Reverse ImageNet normalization (more complex)
-        mean = torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1)
-        denorm_img = normalized_image * std + mean
-
-    show_image_tensor(
-        ax6,
-        denorm_img,
-        title="Final Normalized Image\nModel input format",
-        cmap="gray" if cnn_mode else None,
-    )
-
-    # Add dataset statistics and configuration text
-    title_text = (
-        "CNN Preprocessing Pipeline" if cnn_mode else "ResNet Preprocessing Pipeline"
-    )
-    text = (
-        f"Image processing for {title_text}\n"
-        f"Dataset statistics (103,536 images):\n"
-        f"- Most common size: 320x64 pixels (11,821 images)\n"
-        f"- Mean aspect ratio: 5.79 (width/height)\n"
-        f"- All images: RGB mode, uint8 type [0-255]\n"
-        f"- Mean pixel value: 241.51, Std: 46.84"
-    )
-
-    plt.suptitle(title_text, fontsize=16, color="white", y=0.98)
-    fig.text(
+    # Add a subtitle for each row
+    axes[0, 0].text(
+        -0.1,
         0.5,
-        0.01,
-        text,
-        fontsize=12,
-        color="white",
-        horizontalalignment="center",
-        verticalalignment="bottom",
+        "CNN Pipeline",
+        va="center",
+        ha="right",
+        transform=axes[0, 0].transAxes,
+        fontsize=14,
+        fontweight="bold",
     )
 
-    # Adjust layout
-    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+    axes[1, 0].text(
+        -0.1,
+        0.5,
+        "ResNet Pipeline",
+        va="center",
+        ha="right",
+        transform=axes[1, 0].transAxes,
+        fontsize=14,
+        fontweight="bold",
+    )
 
-    # Save the figure
-    plt.savefig(output_path, facecolor=bg_color, bbox_inches="tight", dpi=300)
+    # Add overall title
+    plt.suptitle(
+        f"Image Preprocessing Visualization: {Path(image_path).name}",
+        fontsize=16,
+        fontweight="bold",
+    )
+
+    # Process image for each pipeline (CNN and ResNet)
+    for row, mode in enumerate(["cnn", "resnet"]):
+        # Step 1: Original image
+        orig_img = np.array(img)
+        show_image_tensor(axes[row, 0], orig_img, f"1. Original: {orig_img.shape}")
+
+        # Step 2: Resize to fixed height (64 px)
+        target_height = 64
+        width, height = img.size
+        aspect_ratio = width / height
+        target_width = int(aspect_ratio * target_height)
+
+        resized_img = img.resize((target_width, target_height), Image.LANCZOS)
+        resized_arr = np.array(resized_img)
+        show_image_tensor(axes[row, 1], resized_arr, f"2. Resize: {resized_arr.shape}")
+
+        # Step 3: Pad to fixed width (800 px)
+        target_width = 800
+        if mode == "cnn":
+            # For CNN, convert to grayscale first
+            if len(resized_arr.shape) == 3:
+                grayscale_img = resized_img.convert("L")
+                resized_arr = np.array(grayscale_img)
+
+            padded_arr = pad_image(resized_arr, target_width)
+            show_image_tensor(
+                axes[row, 2],
+                padded_arr,
+                f"3. Pad+Gray: {padded_arr.shape}",
+                cmap="gray",
+            )
+        else:
+            # For ResNet, keep RGB
+            if len(resized_arr.shape) == 2:
+                # If already grayscale, convert to RGB
+                rgb_img = Image.fromarray(resized_arr).convert("RGB")
+                resized_arr = np.array(rgb_img)
+
+            padded_arr = pad_image(resized_arr, target_width)
+            show_image_tensor(
+                axes[row, 2], padded_arr, f"3. Pad+RGB: {padded_arr.shape}"
+            )
+
+        # Step 4: Convert to tensor and normalize
+        if mode == "cnn":
+            # Convert to tensor with shape [1, H, W]
+            tensor = torch.from_numpy(padded_arr).float()
+            tensor = tensor.unsqueeze(0) if len(tensor.shape) == 2 else tensor
+
+            # Normalize to [0, 1]
+            tensor = tensor / 255.0
+
+            # Display normalized tensor
+            show_image_tensor(
+                axes[row, 3],
+                tensor,
+                f"4. Normalize: {tuple(tensor.shape)}",
+                cmap="gray",
+            )
+        else:
+            # Convert to tensor with shape [3, H, W]
+            tensor = torch.from_numpy(padded_arr).float()
+            tensor = tensor.permute(2, 0, 1)  # From HWC to CHW
+
+            # Normalize with ImageNet stats
+            mean = torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1)
+            std = torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1)
+            normalized = (tensor / 255.0 - mean) / std
+
+            # For display, denormalize
+            display_tensor = normalized * std + mean
+
+            # Display normalized tensor
+            show_image_tensor(
+                axes[row, 3], display_tensor, f"4. Normalize: {tuple(normalized.shape)}"
+            )
+
+    # Add dataset stats if available
+    if stats_text:
+        plt.figtext(0.5, 0.01, stats_text, ha="center", fontsize=12)
+
+    # Adjust layout and save
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.savefig(output_path, facecolor=fig.get_facecolor())
+    plt.close()
+
     print(f"Preprocessing visualization saved to {output_path}")
 
-    return fig
 
+@app.command()
+def visualize_preprocessing(
+    image_path: str = typer.Argument(..., help="Path to the input image"),
+    output_dir: str = typer.Option(
+        "outputs/preprocessing", help="Directory to save visualization"
+    ),
+    image_folder: Optional[str] = typer.Option(
+        None, help="Path to folder with similar images (for stats)"
+    ),
+    bg_color: str = typer.Option("white", help="Background color for the plot"),
+    cnn_mode: bool = typer.Option(
+        True, help="Visualize CNN preprocessing (will show both pipelines anyway)"
+    ),
+) -> None:
+    """Visualize preprocessing steps for an image in the latex recognition pipeline."""
+    # Ensure output directory exists
+    output_path = ensure_output_dir(output_dir, "preprocessing")
 
-def main():
-    # Set paths
-    if len(sys.argv) > 1:
-        # Use image path provided as argument
-        image_path = sys.argv[1]
-    else:
-        # Pick a random image from the dataset
-        image_folder = os.path.join(os.getcwd(), "data", "img")
-        image_files = glob.glob(os.path.join(image_folder, "*.png"))
-        image_path = random.choice(image_files)
+    # Generate output file path
+    image_name = Path(image_path).stem
+    output_file = output_path / f"{image_name}_preprocessing.png"
 
-    # Setup output directory
-    output_dir = ensure_output_dir("outputs", "image_preprocessing")
-
-    # Create CNN preprocessing visualization
-    cnn_output_path = os.path.join(output_dir, "cnn_preprocessing.png")
+    # Create visualization
     create_preprocessing_visualization(
         image_path=image_path,
-        output_path=cnn_output_path,
-        bg_color="#121212",
-        cnn_mode=True,
+        output_path=output_file,
+        image_folder=image_folder,
+        bg_color=bg_color,
+        cnn_mode=cnn_mode,
     )
 
-    # Create ResNet preprocessing visualization
-    resnet_output_path = os.path.join(output_dir, "resnet_preprocessing.png")
-    create_preprocessing_visualization(
-        image_path=image_path,
-        output_path=resnet_output_path,
-        bg_color="#121212",
-        cnn_mode=False,
-    )
-
-    print(f"Visualizations completed for image: {image_path}")
+    print(f"Preprocessing visualization created for {image_path}")
+    print(f"Output saved to {output_file}")
 
 
 if __name__ == "__main__":
-    main()
+    app()

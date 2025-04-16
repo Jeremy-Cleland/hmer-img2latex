@@ -158,6 +158,15 @@ def calculate_metrics(
     Returns:
         Dictionary of metrics
     """
+    # Check if any element in the lists is a tensor and convert it
+    predictions = [
+        p.detach().cpu().tolist() if isinstance(p, torch.Tensor) else p
+        for p in predictions
+    ]
+    targets = [
+        t.detach().cpu().tolist() if isinstance(t, torch.Tensor) else t for t in targets
+    ]
+
     # Check that predictions and targets have the same number of samples
     assert len(predictions) == len(targets), (
         "Predictions and targets must have the same length"
@@ -199,6 +208,12 @@ def masked_accuracy(
     Returns:
         Tuple of (accuracy, number of tokens)
     """
+    # Move tensors to CPU if they are on another device
+    if predictions.device.type != "cpu":
+        predictions = predictions.detach().cpu()
+    if targets.device.type != "cpu":
+        targets = targets.detach().cpu()
+
     # Get the predicted tokens
     pred_tokens = torch.argmax(predictions, dim=-1)
 

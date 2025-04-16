@@ -87,19 +87,42 @@ def train(
         if device:
             config["training"]["device"] = device
 
-        # Configure logging
+        # Override experiment name in config if it doesn't match the CLI argument
+        if "training" in config and "experiment_name" in config["training"]:
+            if config["training"]["experiment_name"] != experiment_name:
+                console.print(
+                    f"[yellow]Warning: Overriding experiment name in config ({config['training']['experiment_name']}) with CLI argument ({experiment_name})[/yellow]"
+                )
+                config["training"]["experiment_name"] = experiment_name
+        else:
+            if "training" not in config:
+                config["training"] = {}
+            config["training"]["experiment_name"] = experiment_name
+
+        # Create directories first
+        experiment_registry.path_manager.create_experiment_structure(experiment_name)
+
+        # Set log directory in config
+        if "logging" not in config:
+            config["logging"] = {}
+        log_dir = str(path_manager.get_log_dir(experiment_name))
+        config["logging"]["log_dir"] = log_dir
+
+        # Configure logging (now that we know the experiment directory)
         configure_logging(config)
+
+        logger.info(f"Starting setup for experiment: {experiment_name}")
+        logger.info(f"Log directory: {log_dir}")
 
         # Set device
         device_obj = set_device(config["training"]["device"])
-
-        # Create directories
-        experiment_registry.path_manager.create_experiment_structure(experiment_name)
 
         # Save config to experiment directory
         config_save_path = path_manager.get_config_path(experiment_name)
         with open(config_save_path, "w") as f:
             yaml.dump(config, f)
+
+        logger.info(f"Saved configuration to {config_save_path}")
 
         # Create tokenizer
         tokenizer = LaTeXTokenizer(max_sequence_length=config["data"]["max_seq_length"])

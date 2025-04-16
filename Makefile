@@ -58,8 +58,8 @@ train:
 	while [ -d "$(OUTPUTS_DIR)/$${BASE_NAME}_v$${VERSION}" ]; do \
 		VERSION=$$((VERSION + 1)); \
 	done; \
-	EXPERIMENT_NAME="$${BASE_NAME}"; \
-	echo "Starting training for experiment: $$EXPERIMENT_NAME (will be saved as $${BASE_NAME}_v$${VERSION})"; \
+	EXPERIMENT_NAME="$${BASE_NAME}_v$${VERSION}"; \
+	echo "Starting training for experiment: $$EXPERIMENT_NAME"; \
 	if [ -z "$(CONFIG)" ]; then \
 		CONFIG_PATH="img2latex/configs/config.yaml"; \
 	else \
