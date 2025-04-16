@@ -2,6 +2,8 @@
 data/img/
 /Users/jeremy/hmer-im2latex/data/img
 
+
+/outputs
 img/
 *.png
 *.jpg
