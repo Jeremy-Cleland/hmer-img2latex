@@ -20,6 +20,12 @@ from img2latex.utils.logging import configure_logging, get_logger
 from img2latex.utils.mps_utils import set_device, set_seed
 from img2latex.utils.path_utils import path_manager
 from img2latex.utils.registry import experiment_registry
+from img2latex.utils.visualize_metrics import (
+    load_metrics_files,
+    plot_metrics_over_time,
+    print_prediction_samples,
+    print_token_distribution,
+)
 
 app = typer.Typer(name="img2latex", help="Image to LaTeX conversion tool")
 console = Console()
@@ -327,6 +333,63 @@ def evaluate(
     console.print(f"BLEU-4 Score: {metrics['bleu']:.4f}")
     console.print(f"Levenshtein Similarity: {metrics['levenshtein']:.4f}")
     console.print(f"Number of Samples: {metrics['batch_size']}")
+
+
+@app.command("visualize")
+def visualize_metrics(
+    experiment_name: str = typer.Argument(..., help="Name of the experiment"),
+    epoch: int = typer.Option(
+        None, help="Specific epoch to visualize (default: latest)"
+    ),
+    output_dir: str = typer.Option(None, help="Directory to save plots"),
+    plot_trends: bool = typer.Option(False, help="Plot metrics trends over epochs"),
+):
+    """Visualize enhanced metrics from training."""
+    console.print(
+        f"[bold green]Visualizing metrics for experiment: {experiment_name}[/bold green]"
+    )
+
+    # Get metrics directory
+    metrics_dir = path_manager.get_metrics_dir(experiment_name)
+
+    if not os.path.exists(metrics_dir):
+        console.print(
+            "[bold red]Error:[/bold red] Metrics directory not found for experiment."
+        )
+        return
+
+    # Load metrics files
+    metrics_list = load_metrics_files(metrics_dir, experiment_name)
+
+    if not metrics_list:
+        console.print("[bold red]Error:[/bold red] No metrics files found.")
+        return
+
+    console.print(f"[green]Loaded {len(metrics_list)} metrics files[/green]")
+
+    # If epoch is specified, show details for that epoch
+    if epoch is not None:
+        metrics = next((m for m in metrics_list if m.get("epoch") == epoch), None)
+        if not metrics:
+            console.print(
+                f"[bold red]Error:[/bold red] No metrics found for epoch {epoch}"
+            )
+            return
+    else:
+        # Use the latest epoch
+        metrics = metrics_list[-1]
+        console.print(f"[green]Using latest epoch: {metrics.get('epoch')}[/green]")
+
+    # Print sample predictions
+    print_prediction_samples(metrics)
+
+    # Print token distribution
+    print_token_distribution(metrics)
+
+    # Plot trends if requested
+    if plot_trends:
+        plot_metrics_over_time(metrics_list, output_dir)
+        console.print("[green]Plots generated successfully[/green]")
 
 
 if __name__ == "__main__":

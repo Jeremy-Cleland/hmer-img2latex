@@ -1,0 +1,156 @@
+{
+  "img2latex": {
+    "creation_time": "2025-04-16 01:25:00",
+    "last_updated": "2025-04-16 02:06:19",
+    "metadata": {},
+    "metrics": {
+      "steps": {
+        "1": {
+          "epoch": 1,
+          "step": 589,
+          "train_acc": 0.4644195935861128,
+          "train_loss": 2.526661695406232,
+          "val_acc": 0.5184147647688885,
+          "val_bleu": 0.08590656298154829,
+          "val_levenshtein": 0.22103990377569444,
+          "val_loss": 2.1551361180263324
+        },
+        "10": {
+          "epoch": 10,
+          "step": 5890,
+          "train_acc": 0.5971368446407139,
+          "train_loss": 1.715151094760027,
+          "val_acc": 0.600203921891736,
+          "val_bleu": 0.12947459867599337,
+          "val_levenshtein": 0.2525700504442268,
+          "val_loss": 1.696772244668776
+        },
+        "11": {
+          "epoch": 11,
+          "step": 6479,
+          "train_acc": 0.5994551974357689,
+          "train_loss": 1.701789241163329,
+          "val_acc": 0.6004613990277663,
+          "val_bleu": 0.13089997141675583,
+          "val_levenshtein": 0.25458097167106175,
+          "val_loss": 1.6895402496718448
+        },
+        "12": {
+          "epoch": 12,
+          "step": 7068,
+          "train_acc": 0.6031084360277587,
+          "train_loss": 1.6841503840449323,
+          "val_acc": 0.606717063524759,
+          "val_bleu": 0.13403129103978656,
+          "val_levenshtein": 0.2557777562051454,
+          "val_loss": 1.6605692492021313
+        },
+        "13": {
+          "epoch": 13,
+          "step": 7657,
+          "train_acc": 0.6052957824687757,
+          "train_loss": 1.6721085125677058,
+          "val_acc": 0.6065316799868171,
+          "val_bleu": 0.1330734465803579,
+          "val_levenshtein": 0.25537716546093603,
+          "val_loss": 1.6621578322516548
+        },
+        "2": {
+          "epoch": 2,
+          "step": 1178,
+          "train_acc": 0.5309464588522832,
+          "train_loss": 2.085574928240616,
+          "val_acc": 0.5490627832248496,
+          "val_bleu": 0.09943669349516647,
+          "val_levenshtein": 0.23319442573605248,
+          "val_loss": 1.9749881553820812
+        },
+        "3": {
+          "epoch": 3,
+          "step": 1767,
+          "train_acc": 0.5531906482608102,
+          "train_loss": 1.9595449438114096,
+          "val_acc": 0.5665568097552938,
+          "val_bleu": 0.11037859814489752,
+          "val_levenshtein": 0.24073741393568002,
+          "val_loss": 1.8833026810216504
+        },
+        "4": {
+          "epoch": 4,
+          "step": 2356,
+          "train_acc": 0.5662995577501291,
+          "train_loss": 1.8876954178000873,
+          "val_acc": 0.5762544286067397,
+          "val_bleu": 0.11748951130954251,
+          "val_levenshtein": 0.2446029826463715,
+          "val_loss": 1.834168887052912
+        },
+        "5": {
+          "epoch": 5,
+          "step": 2945,
+          "train_acc": 0.5751882239537534,
+          "train_loss": 1.8380714061750363,
+          "val_acc": 0.5824235807860262,
+          "val_bleu": 0.12033780721472061,
+          "val_levenshtein": 0.24536154479640895,
+          "val_loss": 1.7926034086494036
+        },
+        "6": {
+          "epoch": 6,
+          "step": 3534,
+          "train_acc": 0.5814710128905656,
+          "train_loss": 1.8023681258410957,
+          "val_acc": 0.583781000247178,
+          "val_bleu": 0.12382294275510222,
+          "val_levenshtein": 0.24771299540792105,
+          "val_loss": 1.7858318213493594
+        },
+        "7": {
+          "epoch": 7,
+          "step": 4123,
+          "train_acc": 0.5864281094587966,
+          "train_loss": 1.7752097637080861,
+          "val_acc": 0.5929822031803575,
+          "val_bleu": 0.1255287233859324,
+          "val_levenshtein": 0.2499858349745349,
+          "val_loss": 1.739899513371102
+        },
+        "8": {
+          "epoch": 8,
+          "step": 4712,
+          "train_acc": 0.590852217018231,
+          "train_loss": 1.7498795016047093,
+          "val_acc": 0.5971347944302546,
+          "val_bleu": 0.12797320930354755,
+          "val_levenshtein": 0.25174849032113544,
+          "val_loss": 1.715712800020243
+        },
+        "9": {
+          "epoch": 9,
+          "step": 5301,
+          "train_acc": 0.5938400812331329,
+          "train_loss": 1.7334714056937965,
+          "val_acc": 0.5962346543626926,
+          "val_bleu": 0.12813754623309806,
+          "val_levenshtein": 0.25157763075277867,
+          "val_loss": 1.7190975366954735
+        }
+      }
+    },
+    "path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v1",
+    "status": "training"
+  },
+  "img2latex_v1": {
+    "config_path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v1/config.yaml",
+    "creation_time": "2025-04-16 01:25:00",
+    "description": "Image-to-LaTeX model: cnn_lstm with 256 embedding dim, 256 hidden dim. Training with lr=0.001, batch_size=128, max_epochs=50",
+    "last_updated": "2025-04-16 01:25:00",
+    "metrics": {},
+    "path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v1",
+    "status": "created",
+    "tags": [
+      "cnn_lstm",
+      "lr_0.001"
+    ]
+  }
+}
