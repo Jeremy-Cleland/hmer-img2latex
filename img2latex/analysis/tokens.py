@@ -1,27 +1,46 @@
 #!/usr/bin/env python
 """
-Script to analyze token distributions in predicted and ground truth sequences.
+Script to analyze token distributions in predictions vs references.
 
 Features:
-- Read decoded predictions and ground truths
-- Compute token frequency histograms
-- Calculate KL-divergence between distributions
-- Highlight under/over-represented tokens
+- Load predictions and references
+- Calculate token frequencies
+- Compute KL divergence between distributions
+- Identify the most divergent tokens
+- Visualize token distributions
 """
 
+import json
+import os
 from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import typer
+import yaml
+from rich.console import Console
 from scipy.stats import entropy
-from utils import ensure_output_dir, load_csv_file, load_json_file
+
+from img2latex.analysis.utils import (
+    ensure_output_dir,
+    load_csv_file,
+    load_json_file,
+)
 
 # Create Typer app
-app = typer.Typer(help="Analyze token distributions in predictions and ground truths")
+app = typer.Typer(help="Analyze token distributions in img2latex predictions")
+
+# Create console for rich output
+console = Console()
+
+
+def load_config(config_path: str) -> dict:
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
 
 def load_predictions_data(file_path: Union[str, Path]) -> Tuple[List[str], List[str]]:
@@ -342,79 +361,97 @@ def print_divergence_report(
 
 
 @app.command()
-def analyze_tokens(
+def analyze(
+    config_path: str = typer.Option(
+        "img2latex/configs/config.yaml", help="Path to the configuration file"
+    ),
     predictions_file: str = typer.Argument(
-        ..., help="Path to file containing predictions and ground truths"
+        ..., help="Path to the predictions JSON file"
     ),
     output_dir: str = typer.Option(
-        "outputs/token_analysis", help="Directory to save analysis results"
+        "outputs/token_analysis", help="Directory to save the token analysis results"
     ),
-    token_delimiter: str = typer.Option(" ", help="Delimiter to use for tokenization"),
-    top_k: int = typer.Option(20, help="Number of top divergent tokens to report"),
+    top_k: int = typer.Option(20, help="Number of most divergent tokens to display"),
+    token_delimiter: str = typer.Option(
+        " ", help="Delimiter used to tokenize the sequences"
+    ),
 ) -> None:
-    """Analyze token distributions in predictions and ground truths."""
+    """Analyze token distributions in model predictions vs references."""
+    # Load configuration
+    cfg = load_config(config_path)
+
     # Ensure output directory exists
     output_path = ensure_output_dir(output_dir, "tokens")
 
-    # Load predictions data
-    print(f"Loading predictions from {predictions_file}...")
+    console.print(
+        f"[bold green]Loading predictions from {predictions_file}[/bold green]"
+    )
+
+    # Load predictions and references
     try:
-        predictions, ground_truths = load_predictions_data(predictions_file)
-        print(f"Loaded {len(predictions)} prediction-reference pairs")
-
-        # Tokenize sequences
-        print("Tokenizing sequences...")
-        tokenized_predictions = tokenize_sequences(predictions, token_delimiter)
-        tokenized_ground_truths = tokenize_sequences(ground_truths, token_delimiter)
-
-        # Compute token frequencies
-        print("Computing token frequencies...")
-        pred_freqs = compute_token_frequencies(tokenized_predictions)
-        truth_freqs = compute_token_frequencies(tokenized_ground_truths)
-
-        pred_unique_tokens = len(pred_freqs)
-        truth_unique_tokens = len(truth_freqs)
-
-        print(f"Predictions contain {pred_unique_tokens} unique tokens")
-        print(f"Ground truths contain {truth_unique_tokens} unique tokens")
-
-        # Calculate KL-divergence
-        print("Calculating KL-divergence...")
-        kl_divergence, token_kl = calculate_kl_divergence(pred_freqs, truth_freqs)
-
-        # Find most divergent tokens
-        print("Finding most divergent tokens...")
-        under_represented, over_represented = find_divergent_tokens(token_kl, top_k)
-
-        # Generate plots
-        print("Generating plots...")
-        plot_token_distributions(pred_freqs, truth_freqs, output_path)
-
-        # Generate report
-        print("Generating report...")
-        print_divergence_report(
-            under_represented, over_represented, kl_divergence, output_path
-        )
-
-        # Save token frequencies as CSV
-        print("Saving token frequencies...")
-
-        # Combine frequencies into a DataFrame
-        all_tokens = sorted(set(list(pred_freqs.keys()) + list(truth_freqs.keys())))
-        freq_data = {
-            "token": all_tokens,
-            "predictions_count": [pred_freqs.get(token, 0) for token in all_tokens],
-            "ground_truth_count": [truth_freqs.get(token, 0) for token in all_tokens],
-        }
-
-        freq_df = pd.DataFrame(freq_data)
-        freq_df.to_csv(output_path / "token_frequencies.csv", index=False)
-
-        print(f"Token frequencies saved to {output_path / 'token_frequencies.csv'}")
-        print(f"Token analysis complete. Results saved to {output_path}")
-
+        references, predictions = load_predictions_data(predictions_file)
     except Exception as e:
-        print(f"Error analyzing token distributions: {e}")
+        console.print(f"[bold red]Error loading predictions file: {e}[/bold red]")
+        return
+
+    console.print(f"[green]Loaded {len(predictions)} prediction samples[/green]")
+
+    # Tokenize sequences
+    reference_tokens = tokenize_sequences(references, token_delimiter)
+    prediction_tokens = tokenize_sequences(predictions, token_delimiter)
+
+    # Compute token frequencies
+    reference_freqs = compute_token_frequencies(reference_tokens)
+    prediction_freqs = compute_token_frequencies(prediction_tokens)
+
+    # Calculate KL divergence
+    kl_div, token_divergences = calculate_kl_divergence(
+        reference_freqs, prediction_freqs
+    )
+
+    console.print(f"\n[bold]Overall KL divergence: {kl_div:.4f}[/bold]")
+
+    # Find most divergent tokens
+    divergent_tokens = find_divergent_tokens(
+        reference_freqs, prediction_freqs, token_divergences, top_k
+    )
+
+    # Print divergence report
+    print_divergence_report(divergent_tokens, reference_freqs, prediction_freqs)
+
+    # Visualize token distributions
+    visualize_file = output_path / "token_distributions.png"
+    plot_token_distributions(
+        divergent_tokens, reference_freqs, prediction_freqs, visualize_file
+    )
+
+    # Save detailed results to JSON
+    results = {
+        "overall_kl_divergence": kl_div,
+        "divergent_tokens": [
+            {
+                "token": token,
+                "reference_freq": reference_freqs[token],
+                "prediction_freq": prediction_freqs.get(token, 0),
+                "divergence": divergence,
+            }
+            for token, divergence in divergent_tokens
+        ],
+        "token_stats": {
+            "unique_reference_tokens": len(reference_freqs),
+            "unique_prediction_tokens": len(prediction_freqs),
+            "reference_token_count": sum(reference_freqs.values()),
+            "prediction_token_count": sum(prediction_freqs.values()),
+        },
+    }
+
+    results_file = output_path / "token_analysis.json"
+    with open(results_file, "w") as f:
+        json.dump(results, f, indent=2)
+
+    console.print(
+        f"[bold green]Token analysis complete. Results saved to {output_path}[/bold green]"
+    )
 
 
 if __name__ == "__main__":

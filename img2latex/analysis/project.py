@@ -24,7 +24,8 @@ import pandas as pd
 import typer
 import yaml
 from rich.console import Console
-from utils import ensure_output_dir
+
+from img2latex.analysis.utils import ensure_output_dir
 
 # Suppress specific warnings if needed (e.g., from libraries)
 # warnings.filterwarnings("ignore", category=SomeWarningCategory)
@@ -563,8 +564,10 @@ def plot_hyperparameter_comparison(
 
 
 @app.command()
-def analyze_project(
-    config_path: str = typer.Argument(..., help="Path to the YAML config file"),
+def analyze(
+    config_path: str = typer.Option(
+        "img2latex/configs/config.yaml", help="Path to the configuration file"
+    ),
     base_dir: str = typer.Option(".", help="Base directory for the project"),
     output_dir: str = typer.Option(
         "outputs/project_analysis", help="Directory to save analysis results"
@@ -573,7 +576,7 @@ def analyze_project(
         False, help="Perform detailed analysis (Git comparison, hyperparameter sweep)"
     ),
 ) -> None:
-    """Analyze the img2latex project configuration and status."""
+    """Analyze project configuration, paths, and code structure."""
     # Ensure output directory exists
     output_path = ensure_output_dir(output_dir, "project")
 

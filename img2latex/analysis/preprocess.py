@@ -8,6 +8,7 @@ Features:
 - Show preprocessing steps with annotations
 """
 
+import os
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
@@ -15,11 +16,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import typer
+import yaml
 from PIL import Image
-from utils import ensure_output_dir
+
+from img2latex.analysis.utils import ensure_output_dir
 
 # Create Typer app
 app = typer.Typer(help="Visualize preprocessing steps for images")
+
+
+def load_config(config_path: str) -> dict:
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
 
 def pad_image(img: np.ndarray, target_width: int, pad_value: int = 255) -> np.ndarray:
@@ -306,7 +316,10 @@ def create_preprocessing_visualization(
 
 
 @app.command()
-def visualize_preprocessing(
+def visualize(
+    config_path: str = typer.Option(
+        "img2latex/configs/config.yaml", help="Path to the configuration file"
+    ),
     image_path: str = typer.Argument(..., help="Path to the input image"),
     output_dir: str = typer.Option(
         "outputs/preprocessing", help="Directory to save visualization"
@@ -319,25 +332,38 @@ def visualize_preprocessing(
         True, help="Visualize CNN preprocessing (will show both pipelines anyway)"
     ),
 ) -> None:
-    """Visualize preprocessing steps for an image in the latex recognition pipeline."""
-    # Ensure output directory exists
-    output_path = ensure_output_dir(output_dir, "preprocessing")
+    """Visualize the preprocessing steps for an image."""
+    # Load configuration
+    cfg = load_config(config_path)
 
-    # Generate output file path
-    image_name = Path(image_path).stem
-    output_file = output_path / f"{image_name}_preprocessing.png"
+    # Use config for image_folder if not specified and image_path doesn't provide a folder
+    if image_folder is None:
+        if os.path.isdir(os.path.dirname(image_path)):
+            image_folder = os.path.dirname(image_path)
+        else:
+            data_dir = cfg["data"]["data_dir"]
+            img_dir = cfg["data"]["img_dir"]
+            image_folder = os.path.join(data_dir, img_dir)
+
+    # Ensure output directory exists
+    output_path = ensure_output_dir(output_dir, "preprocess")
+
+    # Create output filename from input filename
+    input_filename = os.path.basename(image_path)
+    output_filename = f"preprocessing_{input_filename}"
+    full_output_path = output_path / output_filename
 
     # Create visualization
+    print(f"Creating preprocessing visualization for {image_path}...")
     create_preprocessing_visualization(
         image_path=image_path,
-        output_path=output_file,
+        output_path=full_output_path,
         image_folder=image_folder,
         bg_color=bg_color,
         cnn_mode=cnn_mode,
     )
 
-    print(f"Preprocessing visualization created for {image_path}")
-    print(f"Output saved to {output_file}")
+    print(f"Visualization saved to {full_output_path}")
 
 
 if __name__ == "__main__":

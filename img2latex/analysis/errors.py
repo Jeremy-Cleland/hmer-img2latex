@@ -1,26 +1,42 @@
 #!/usr/bin/env python
 """
-Script to analyze errors in model predictions.
+Script for error analysis of the img2latex model predictions.
 
-Features:
-- Load validation outputs with BLEU and Levenshtein scores
-- Bucket examples by edit distance ranges
-- Sample examples per bucket
-- Generate Markdown report with error patterns
+This script analyzes prediction errors, categorizes them by type,
+and generates a comprehensive error analysis report.
 """
 
+import os
 import random
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 import typer
+import yaml
 from Levenshtein import distance
-from utils import ensure_output_dir, load_csv_file, load_json_file, save_json_file
+from rich.console import Console
+
+from img2latex.analysis.utils import (
+    ensure_output_dir,
+    load_csv_file,
+    load_json_file,
+    save_json_file,
+)
 
 # Create Typer app
-app = typer.Typer(help="Analyze errors in model predictions")
+app = typer.Typer(help="Error analysis for img2latex model predictions")
+
+# Create console for rich output
+console = Console()
+
+
+def load_config(config_path: str) -> dict:
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
 
 def load_predictions(file_path: Union[str, Path]) -> List[Dict[str, Union[str, float]]]:
@@ -389,85 +405,97 @@ def generate_error_report(
 
 
 @app.command()
-def analyze_errors(
+def analyze(
+    config_path: str = typer.Option(
+        "img2latex/configs/config.yaml", help="Path to the configuration file"
+    ),
     predictions_file: str = typer.Argument(
-        ..., help="Path to file containing predictions and references with scores"
+        ..., help="Path to the predictions JSON file"
     ),
     output_dir: str = typer.Option(
-        "outputs/error_analysis", help="Directory to save analysis results"
+        "outputs/error_analysis", help="Directory to save the error analysis results"
     ),
-    samples_per_bucket: int = typer.Option(
-        5, help="Number of examples to include per bucket in the report"
+    min_edit_distance: int = typer.Option(
+        1, help="Minimum edit distance to consider as an error"
     ),
-    random_seed: Optional[int] = typer.Option(
-        None, help="Random seed for reproducible sampling"
+    max_samples: int = typer.Option(
+        50, help="Maximum number of samples to include in each error category"
     ),
 ) -> None:
-    """Analyze errors in model predictions and generate a report."""
-    # Set random seed if provided
-    if random_seed is not None:
-        random.seed(random_seed)
+    """Analyze prediction errors and generate a comprehensive error report."""
+    # Load configuration
+    cfg = load_config(config_path)
 
     # Ensure output directory exists
     output_path = ensure_output_dir(output_dir, "errors")
 
-    # Load predictions data
-    print(f"Loading predictions from {predictions_file}...")
+    console.print(
+        f"[bold green]Loading predictions from {predictions_file}[/bold green]"
+    )
+
+    # Load predictions
     try:
-        records = load_predictions(predictions_file)
-        print(f"Loaded {len(records)} prediction-reference pairs")
-
-        # Group records by edit distance
-        print("Grouping records by edit distance...")
-        distance_ranges = [(0, 0), (1, 1), (2, 3), (4, float("inf"))]
-        buckets = bucket_by_edit_distance(records, distance_ranges)
-
-        # Print bucket statistics
-        print("\nEdit distance buckets:")
-        for bucket_name, bucket_records in buckets.items():
-            print(f"  {bucket_name}: {len(bucket_records)} examples")
-
-        # Identify error patterns
-        print("\nIdentifying error patterns...")
-        error_patterns = identify_error_patterns(records)
-
-        # Print top error patterns
-        if error_patterns:
-            print("\nTop error patterns:")
-            for pattern in error_patterns[:5]:  # Show top 5
-                print(
-                    f"  {pattern['pattern']}: {pattern['count']} occurrences - {pattern['description']}"
-                )
-
-        # Generate report
-        print("\nGenerating error analysis report...")
-        report_path = output_path / "error_analysis_report.md"
-        report = generate_error_report(
-            buckets, error_patterns, samples_per_bucket, report_path
-        )
-
-        # Save bucketed examples to JSON for further analysis
-        bucketed_data = {}
-        for bucket_name, bucket_records in buckets.items():
-            bucketed_data[bucket_name] = [
-                {
-                    "id": record["id"],
-                    "reference": record["reference"],
-                    "hypothesis": record["hypothesis"],
-                    "edit_distance": record.get(
-                        "edit_distance", record.get("levenshtein", 0)
-                    ),
-                    "bleu": record.get("bleu", 0),
-                }
-                for record in bucket_records[:100]  # Limit to 100 examples per bucket
-            ]
-
-        save_json_file(bucketed_data, output_path / "error_buckets.json")
-
-        print(f"Error analysis complete. Report saved to {report_path}")
-
+        predictions = load_predictions(predictions_file)
     except Exception as e:
-        print(f"Error during error analysis: {e}")
+        console.print(f"[bold red]Error loading predictions file: {e}[/bold red]")
+        return
+
+    console.print(f"[green]Loaded {len(predictions)} prediction samples[/green]")
+
+    # Group records by edit distance
+    console.print("[green]Grouping records by edit distance...[/green]")
+    distance_ranges = [(0, 0), (1, 1), (2, 3), (4, float("inf"))]
+    buckets = bucket_by_edit_distance(predictions, distance_ranges)
+
+    # Print bucket statistics
+    console.print("\n[bold]Edit distance buckets:[/bold]")
+    for bucket_name, bucket_records in buckets.items():
+        console.print(f"  {bucket_name}: {len(bucket_records)} examples")
+
+    # Identify error patterns
+    console.print("\n[green]Identifying error patterns...[/green]")
+    error_patterns = identify_error_patterns(predictions)
+
+    # Generate error report
+    console.print("\n[green]Generating error report...[/green]")
+    report_path = output_path / "error_analysis_report.md"
+    report = generate_error_report(buckets, error_patterns, max_samples, report_path)
+
+    # Save bucketed examples to JSON for further analysis
+    bucketed_data = {}
+    for bucket_name, bucket_records in buckets.items():
+        bucketed_data[bucket_name] = [
+            {
+                "id": record.get("id", i),
+                "reference": record["reference"],
+                "hypothesis": record["hypothesis"],
+                "edit_distance": record.get(
+                    "edit_distance", record.get("levenshtein", 0)
+                ),
+                "bleu": record.get("bleu", 0),
+            }
+            for i, record in enumerate(
+                bucket_records[:100]
+            )  # Limit to 100 examples per bucket
+        ]
+
+    # Save report to JSON
+    save_json_file(bucketed_data, output_path / "error_buckets.json")
+    console.print(
+        f"[green]Saved error buckets to {output_path / 'error_buckets.json'}[/green]"
+    )
+
+    # Print top error patterns
+    if error_patterns:
+        console.print("\n[bold]Top error patterns:[/bold]")
+        for pattern in error_patterns[:5]:  # Show top 5
+            console.print(
+                f"  {pattern['pattern']}: {pattern['count']} occurrences - {pattern['description']}"
+            )
+
+    console.print(
+        f"[bold green]Error analysis complete. Report saved to {report_path}[/bold green]"
+    )
 
 
 if __name__ == "__main__":

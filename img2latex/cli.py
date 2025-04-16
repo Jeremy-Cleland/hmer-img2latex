@@ -437,13 +437,19 @@ def visualize_metrics(
         console.print("[green]Plots generated successfully[/green]")
 
 
-# add analysis commands
-app.add_typer(images_app.app, name="images", help="Compute image stats & visuals")
-app.add_typer(project_app.app, name="project", help="Inspect config & data")
-app.add_typer(curves_app.app, name="curves", help="Plot learning curves")
-app.add_typer(tokens_app.app, name="tokens", help="Token distribution analysis")
-app.add_typer(errors_app.app, name="errors", help="Error‑analysis report")
-app.add_typer(
+# Register analysis subcommands under analysis_app
+analysis_app.add_typer(images_app.app, name="images", help="Analyze raw images")
+analysis_app.add_typer(
+    project_app.app, name="project", help="Inspect project configuration and data"
+)
+analysis_app.add_typer(curves_app.app, name="curves", help="Plot learning curves")
+analysis_app.add_typer(
+    tokens_app.app, name="tokens", help="Analyze token distributions"
+)
+analysis_app.add_typer(
+    errors_app.app, name="errors", help="Generate error analysis report"
+)
+analysis_app.add_typer(
     preprocess_app.app, name="preprocess", help="Visualize preprocessing pipeline"
 )
 

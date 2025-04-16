@@ -297,7 +297,7 @@
     "config_path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v2/config.yaml",
     "creation_time": "2025-04-16 15:20:40",
     "description": "Image-to-LaTeX model: cnn_lstm with 256 embedding dim, 256 hidden dim. Training with lr=0.001, batch_size=128, max_epochs=100",
-    "last_updated": "2025-04-16 16:38:53",
+    "last_updated": "2025-04-16 16:52:58",
     "metrics": {
       "steps": {
         "1": {
@@ -449,6 +449,46 @@
           "val_bleu": 0.15021147324688597,
           "val_levenshtein": 0.27995006820296614,
           "val_loss": 1.590993117118252
+        },
+        "23": {
+          "epoch": 23,
+          "step": 6785,
+          "train_acc": 0.6289633444221402,
+          "train_loss": 1.5432109546344648,
+          "val_acc": 0.6233706846832001,
+          "val_bleu": 0.15428465078783227,
+          "val_levenshtein": 0.28235757205715767,
+          "val_loss": 1.5823748853186694
+        },
+        "24": {
+          "epoch": 24,
+          "step": 7080,
+          "train_acc": 0.6313285837017982,
+          "train_loss": 1.5309759527518083,
+          "val_acc": 0.621339705034193,
+          "val_bleu": 0.1521877016263084,
+          "val_levenshtein": 0.28286879230407597,
+          "val_loss": 1.5865300540286011
+        },
+        "25": {
+          "epoch": 25,
+          "step": 7375,
+          "train_acc": 0.6328992809360013,
+          "train_loss": 1.522617066502769,
+          "val_acc": 0.6255685095163549,
+          "val_bleu": 0.15393069367470974,
+          "val_levenshtein": 0.2822745677889983,
+          "val_loss": 1.566342231933931
+        },
+        "26": {
+          "epoch": 26,
+          "step": 7670,
+          "train_acc": 0.6346423549518333,
+          "train_loss": 1.5144211871582025,
+          "val_acc": 0.6251792040866772,
+          "val_bleu": 0.15333156036251572,
+          "val_levenshtein": 0.28264480437180517,
+          "val_loss": 1.569145346314534
         },
         "3": {
           "epoch": 3,

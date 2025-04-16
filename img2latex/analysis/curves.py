@@ -9,16 +9,26 @@ Features:
 """
 
 import json
+import os
 from pathlib import Path
 from typing import List, Optional, Union
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import typer
-from utils import ensure_output_dir
+import yaml
+
+from img2latex.analysis.utils import ensure_output_dir
 
 # Create Typer app
 app = typer.Typer(help="Plot learning curves from training metrics")
+
+
+def load_config(config_path: str) -> dict:
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
 
 def load_metrics_data(file_path: Union[str, Path]) -> pd.DataFrame:
@@ -150,6 +160,9 @@ def plot_learning_curves(
 
 @app.command()
 def plot_learning_curves_from_file(
+    config_path: str = typer.Option(
+        "img2latex/configs/config.yaml", help="Path to the configuration file"
+    ),
     metrics_file: str = typer.Argument(
         ..., help="Path to the metrics file (CSV or JSON)"
     ),
@@ -161,6 +174,9 @@ def plot_learning_curves_from_file(
     ),
 ) -> None:
     """Plot learning curves from a metrics file."""
+    # Load configuration
+    cfg = load_config(config_path)
+
     # Ensure output directory exists
     output_path = ensure_output_dir(output_dir, "curves")
 
