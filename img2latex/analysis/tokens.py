@@ -14,7 +14,7 @@ import json
 import os
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -139,17 +139,26 @@ def load_predictions_data(file_path: Union[str, Path]) -> Tuple[List[str], List[
     return predictions, ground_truths
 
 
-def tokenize_sequences(sequences: List[str], delimiter: str = " ") -> List[List[str]]:
+def tokenize_sequences(
+    sequences: List[str], delimiter: str = " ", max_length: Optional[int] = None
+) -> List[List[str]]:
     """Tokenize sequences using the specified delimiter.
 
     Args:
         sequences: List of text sequences
         delimiter: Token delimiter (default: space)
+        max_length: Maximum sequence length for truncation (default: None, no truncation)
 
     Returns:
         List of tokenized sequences
     """
-    return [seq.split(delimiter) for seq in sequences]
+    tokenized = [seq.split(delimiter) for seq in sequences]
+
+    # Truncate if max_length is specified
+    if max_length is not None:
+        tokenized = [seq[:max_length] for seq in tokenized]
+
+    return tokenized
 
 
 def compute_token_frequencies(tokenized_sequences: List[List[str]]) -> Counter:
@@ -375,10 +384,16 @@ def analyze(
     token_delimiter: str = typer.Option(
         " ", help="Delimiter used to tokenize the sequences"
     ),
+    apply_max_length: bool = typer.Option(
+        True, help="Apply max sequence length from config to tokenization"
+    ),
 ) -> None:
     """Analyze token distributions in model predictions vs references."""
     # Load configuration
     cfg = load_config(config_path)
+
+    # Get max sequence length from config
+    max_seq_length = cfg["data"].get("max_seq_length") if apply_max_length else None
 
     # Ensure output directory exists
     output_path = ensure_output_dir(output_dir, "tokens")
@@ -396,9 +411,12 @@ def analyze(
 
     console.print(f"[green]Loaded {len(predictions)} prediction samples[/green]")
 
+    if max_seq_length:
+        console.print(f"[blue]Using max sequence length: {max_seq_length}[/blue]")
+
     # Tokenize sequences
-    reference_tokens = tokenize_sequences(references, token_delimiter)
-    prediction_tokens = tokenize_sequences(predictions, token_delimiter)
+    reference_tokens = tokenize_sequences(references, token_delimiter, max_seq_length)
+    prediction_tokens = tokenize_sequences(predictions, token_delimiter, max_seq_length)
 
     # Compute token frequencies
     reference_freqs = compute_token_frequencies(reference_tokens)

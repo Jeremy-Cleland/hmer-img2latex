@@ -421,10 +421,14 @@ def analyze(
     max_samples: int = typer.Option(
         50, help="Maximum number of samples to include in each error category"
     ),
+    truncate_sequences: bool = typer.Option(
+        False, help="Truncate sequences to max_seq_length from config"
+    ),
 ) -> None:
     """Analyze prediction errors and generate a comprehensive error report."""
     # Load configuration
     cfg = load_config(config_path)
+    max_seq_length = cfg["data"].get("max_seq_length") if truncate_sequences else None
 
     # Ensure output directory exists
     output_path = ensure_output_dir(output_dir, "errors")
@@ -436,6 +440,23 @@ def analyze(
     # Load predictions
     try:
         predictions = load_predictions(predictions_file)
+
+        # Truncate sequences if needed
+        if max_seq_length:
+            console.print(
+                f"[blue]Truncating sequences to {max_seq_length} tokens[/blue]"
+            )
+            for pred in predictions:
+                if len(pred["reference"].split()) > max_seq_length:
+                    pred["reference"] = " ".join(
+                        pred["reference"].split()[:max_seq_length]
+                    )
+                if len(pred["hypothesis"].split()) > max_seq_length:
+                    pred["hypothesis"] = " ".join(
+                        pred["hypothesis"].split()[:max_seq_length]
+                    )
+                # Recalculate edit distance after truncation
+                pred["edit_distance"] = distance(pred["reference"], pred["hypothesis"])
     except Exception as e:
         console.print(f"[bold red]Error loading predictions file: {e}[/bold red]")
         return

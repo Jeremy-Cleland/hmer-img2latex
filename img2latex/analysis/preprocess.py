@@ -169,6 +169,7 @@ def create_preprocessing_visualization(
     image_folder: Optional[Union[str, Path]] = None,
     bg_color: str = "white",
     cnn_mode: bool = True,
+    model_config: dict = None,
 ) -> None:
     """Create visualization of preprocessing steps.
 
@@ -178,9 +179,17 @@ def create_preprocessing_visualization(
         image_folder: Path to folder with similar images (for stats)
         bg_color: Background color for the plot
         cnn_mode: Whether to use CNN mode (grayscale) or ResNet mode (RGB)
+        model_config: Model configuration for image dimensions
     """
     # Load the image
     img = Image.open(image_path)
+
+    # Use default dimensions if model_config not provided
+    if model_config is None:
+        model_config = {
+            "cnn": {"height": 64, "width": 800, "channels": 1},
+            "resnet": {"height": 64, "width": 800, "channels": 3},
+        }
 
     # Get dataset stats if folder provided
     stats_text = ""
@@ -228,22 +237,25 @@ def create_preprocessing_visualization(
 
     # Process image for each pipeline (CNN and ResNet)
     for row, mode in enumerate(["cnn", "resnet"]):
+        # Get model-specific config
+        mode_config = model_config[mode]
+        target_height = mode_config["height"]
+        target_width = mode_config["width"]
+
         # Step 1: Original image
         orig_img = np.array(img)
         show_image_tensor(axes[row, 0], orig_img, f"1. Original: {orig_img.shape}")
 
-        # Step 2: Resize to fixed height (64 px)
-        target_height = 64
+        # Step 2: Resize to fixed height
         width, height = img.size
         aspect_ratio = width / height
-        target_width = int(aspect_ratio * target_height)
+        resize_width = int(aspect_ratio * target_height)
 
-        resized_img = img.resize((target_width, target_height), Image.LANCZOS)
+        resized_img = img.resize((resize_width, target_height), Image.LANCZOS)
         resized_arr = np.array(resized_img)
         show_image_tensor(axes[row, 1], resized_arr, f"2. Resize: {resized_arr.shape}")
 
-        # Step 3: Pad to fixed width (800 px)
-        target_width = 800
+        # Step 3: Pad to fixed width
         if mode == "cnn":
             # For CNN, convert to grayscale first
             if len(resized_arr.shape) == 3:
@@ -307,6 +319,19 @@ def create_preprocessing_visualization(
     if stats_text:
         plt.figtext(0.5, 0.01, stats_text, ha="center", fontsize=12)
 
+    # Add config info to title
+    cnn_dims = f"CNN: {model_config['cnn']['height']}x{model_config['cnn']['width']}"
+    resnet_dims = (
+        f"ResNet: {model_config['resnet']['height']}x{model_config['resnet']['width']}"
+    )
+    plt.figtext(
+        0.5,
+        0.97,
+        f"Model dimensions: {cnn_dims}, {resnet_dims}",
+        ha="center",
+        fontsize=10,
+    )
+
     # Adjust layout and save
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.savefig(output_path, facecolor=fig.get_facecolor())
@@ -353,6 +378,13 @@ def visualize(
     output_filename = f"preprocessing_{input_filename}"
     full_output_path = output_path / output_filename
 
+    # Extract model dimensions from config
+    model_name = cfg["model"]["name"]
+
+    # Get CNN and ResNet config
+    cnn_config = cfg["model"]["encoder"]["cnn"]
+    resnet_config = cfg["model"]["encoder"]["resnet"]
+
     # Create visualization
     print(f"Creating preprocessing visualization for {image_path}...")
     create_preprocessing_visualization(
@@ -361,6 +393,18 @@ def visualize(
         image_folder=image_folder,
         bg_color=bg_color,
         cnn_mode=cnn_mode,
+        model_config={
+            "cnn": {
+                "height": cnn_config["img_height"],
+                "width": cnn_config["img_width"],
+                "channels": cnn_config["channels"],
+            },
+            "resnet": {
+                "height": resnet_config["img_height"],
+                "width": resnet_config["img_width"],
+                "channels": resnet_config["channels"],
+            },
+        },
     )
 
     print(f"Visualization saved to {full_output_path}")
