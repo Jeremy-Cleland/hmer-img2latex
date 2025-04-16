@@ -1,0 +1,66 @@
+# Configuration for IM2LaTeX project
+
+# Data settings
+data:
+  data_dir: "/Users/jeremy/hmer-im2latex/data"
+  train_file: "im2latex_train_filter.lst"
+  validate_file: "im2latex_validate_filter.lst"
+  test_file: "im2latex_test_filter.lst"
+  formulas_file: "im2latex_formulas.norm.lst"
+  img_dir: "img"
+  batch_size: 128
+  num_workers: 4
+  max_seq_length: 150  # Maximum formula length
+
+# Model settings
+model:
+  name: "cnn_lstm"  # Options: "cnn_lstm", "resnet_lstm"
+  # Encoder settings
+  encoder:
+    # CNN encoder settings (used when model.name = "cnn_lstm")
+    cnn:
+      img_height: 50
+      img_width: 200
+      channels: 1
+      conv_filters: [32, 64, 128]
+      kernel_size: 3
+      pool_size: 2
+      padding: "same"
+    # ResNet encoder settings (used when model.name = "resnet_lstm")
+    resnet:
+      img_height: 224
+      img_width: 224
+      channels: 3
+      model_name: "resnet50"  # Options: "resnet18", "resnet34", "resnet50", "resnet101", "resnet152"
+      freeze_backbone: true
+  # Embedding and decoder settings
+  embedding_dim: 256
+  decoder:
+    hidden_dim: 256
+    lstm_layers: 1
+    dropout: 0.1
+    attention: false  # Whether to use attention mechanism
+
+# Training settings
+training:
+  optimizer: "adam"
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  epochs: 50
+  early_stopping_patience: 10
+  clip_grad_norm: 5.0
+  save_checkpoint_steps: 1000
+  experiment_name: "img2latex_v1"
+  device: "mps"  # Options: "mps", "cuda", "cpu"
+
+# Evaluation settings
+evaluation:
+  metrics: ["loss", "accuracy", "bleu", "levenshtein"]
+  bleu_n: 4  # n for BLEU-n score
+
+# Logging settings
+logging:
+  level: "INFO"
+  log_to_file: true
+  log_file: "train.log"
+  use_colors: true

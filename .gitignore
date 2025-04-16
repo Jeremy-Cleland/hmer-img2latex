@@ -1,0 +1,11 @@
+# data
+data/img/
+
+
+img/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff

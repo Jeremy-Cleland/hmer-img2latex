@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prime_vit"
+version = "0.1.0"
+description = "Mathematical expression recognition using PyTorch and Vision Transformers"
+readme = "README.md"
+authors = [{ name = "AI Assistant" }]
+requires-python = ">=3.8"
+license = { text = "MIT" }
+dependencies = [
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "numpy>=1.20.0",
+    "matplotlib>=3.5.0",
+    "pandas>=1.3.0",
+    "PyYAML>=6.0",
+    "tqdm>=4.62.0",
+    "python-Levenshtein>=0.12.2",
+    "editdistance>=0.6.0",
+    "typer[all]>=0.7.0",
+    "tensorboard>=2.10.0",
+    "pillow>=9.0.0",
+    "kagglehub>=0.2.0",
+]
+
+[project.scripts]
+prime-vit = "prime_vit.__main__:main"
+
+[tool.setuptools]
+packages = ["prime_vit"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+select = ["E", "F", "W", "I"]
+ignore = []
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true

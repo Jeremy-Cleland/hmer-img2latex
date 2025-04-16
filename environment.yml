@@ -1,0 +1,65 @@
+name: hmer-im2latex  # Updated project name
+channels:
+  - pytorch        # Prioritize PyTorch channel for core ML libs
+  - conda-forge
+  - defaults
+dependencies:
+  # --- Core Python & Environment ---
+  - python=3.11      # Specify Python version
+  - pip              # For installing pip packages
+
+  - numpy            # Fundamental for numerical operations
+  - timm             # Essential for image models (like ResNet used in baseline/paper)
+
+  # --- Data Handling & Processing ---
+  - pandas           # For handling data lists/metadata if needed
+  - opencv           # Image loading and processing
+  - pillow           # Image loading and processing
+  - scikit-image     # Additional image processing utilities
+
+  # --- LaTeX Sequence Metrics & Handling ---
+  - python-levenshtein # Levenshtein distance metric (from conda-forge)
+  - editdistance     # Alternative/backup edit distance calculation (from conda-forge)
+  # - pylatexenc     # May be useful for advanced LaTeX tokenization/validation (consider adding later if needed)
+
+  # --- Configuration & CLI ---
+  - pyyaml           # For loading .yaml configuration files
+  - typer            # For building the command-line interface
+  - rich             # Enhances Typer CLI output (recommended)
+
+  # --- Utilities ---
+  - tqdm             # Progress bars for loops (training, data loading)
+
+  # --- Plotting (Optional but often useful) ---
+  - matplotlib
+  - seaborn        # Keep if more advanced plots are needed
+  # - plotly         # Keep for interactive plots if needed
+
+  # --- Development & Code Quality (Optional but recommended) ---
+  - pytest           # For running tests
+  - black            # Code formatter
+  - isort            # Import sorter
+  - flake8           # Linter
+  - ruff           # Faster linter/formatter (can replace flake8/black/isort)
+  # - mypy           # Static type checker
+
+  # --- Pip Dependencies (for packages not readily available/stable on conda) ---
+  - pip:
+      - torchmetrics   # PyTorch-native metrics implementations
+      - tensorboard    # For logging experiment metrics/visualizations
+      - torch
+      - torchvision
+      - torchaudio
+      - wandb
+
+# --- Environment Variables for MPS Tuning & Performance ---
+variables:
+  PYTORCH_ENABLE_MPS_FALLBACK: "1"  # Allow fallback to CPU for unsupported MPS ops
+  # PYTORCH_MPS_VERBOSE: "1"          # Uncomment for verbose MPS logs (debugging)
+  PYTORCH_MPS_HIGH_WATERMARK_RATIO: "0.0" # Disable ratio-based memory limit (use set_per_process_memory_fraction)
+  PYTORCH_PREFER_CHANNELS_LAST: "1" # Often better performance on vision models
+  HDF5_USE_FILE_LOCKING: "FALSE"    # Prevent issues with HDF5 file locking
+  # --- CPU Threading (Adjust based on your system cores) ---
+  OMP_NUM_THREADS: "12"              # Example: Set to number of performance cores
+  MKL_NUM_THREADS: "12"              # Example: Set to number of performance cores
+  # NO_ALBUMENTATIONS_UPDATE: "1"   # Disable albumentations update checks if needed
