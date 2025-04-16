@@ -22,8 +22,8 @@ class CNNEncoder(nn.Module):
     
     def __init__(
         self,
-        img_height: int = 50,
-        img_width: int = 200,
+        img_height: int = 64,
+        img_width: int = 800,
         channels: int = 1,
         conv_filters: List[int] = [32, 64, 128],
         kernel_size: int = 3,
@@ -122,8 +122,8 @@ class ResNetEncoder(nn.Module):
     
     def __init__(
         self,
-        img_height: int = 224,
-        img_width: int = 224,
+        img_height: int = 64,
+        img_width: int = 800,
         channels: int = 3,
         model_name: str = "resnet50",
         embedding_dim: int = 256,
