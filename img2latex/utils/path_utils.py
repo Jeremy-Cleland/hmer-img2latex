@@ -35,29 +35,35 @@ class PathManager:
             # Try to find the project root directory automatically using multiple methods
             # Start from the current module's directory
             current_dir = Path(os.path.dirname(os.path.realpath(__file__)))
-            
+
             # Try to find root by walking up until we find the img2latex package
             root_candidates = []
-            
+
             # Method 1: Check parent directories for img2latex directory
             temp_dir = current_dir
             for _ in range(5):  # Limit search depth to avoid infinite loops
-                if (temp_dir / "img2latex").exists() or (temp_dir.parent / "img2latex").exists():
-                    root_candidates.append(temp_dir if (temp_dir / "img2latex").exists() else temp_dir.parent)
+                if (temp_dir / "img2latex").exists() or (
+                    temp_dir.parent / "img2latex"
+                ).exists():
+                    root_candidates.append(
+                        temp_dir
+                        if (temp_dir / "img2latex").exists()
+                        else temp_dir.parent
+                    )
                     break
                 temp_dir = temp_dir.parent
-            
+
             # Method 2: Try to use module's package structure (utils -> img2latex -> project root)
             if current_dir.name == "utils":
                 package_root = current_dir.parent.parent
                 if (package_root / "img2latex").exists():
                     root_candidates.append(package_root)
-            
+
             # Method 3: Try using current working directory
             cwd = Path.cwd()
             if (cwd / "img2latex").exists():
                 root_candidates.append(cwd)
-            
+
             # Method 4: Look for specific project markers (Makefile, pyproject.toml)
             for marker in ["Makefile", "pyproject.toml"]:
                 temp_dir = current_dir
@@ -67,7 +73,7 @@ class PathManager:
                             root_candidates.append(temp_dir)
                             break
                     temp_dir = temp_dir.parent
-            
+
             # Choose the first valid candidate
             if root_candidates:
                 self.root_dir = root_candidates[0]
@@ -81,7 +87,7 @@ class PathManager:
                 )
         else:
             self.root_dir = Path(root_dir)
-            
+
         # Validate that we have the correct root dir
         if not (self.root_dir / "img2latex").exists():
             logger.warning(
@@ -101,6 +107,14 @@ class PathManager:
 
         # Registry file path
         self.experiment_registry_file = self.registry_dir / "experiment_registry.json"
+
+        # Initialize registry file if it doesn't exist or is corrupted
+        if (
+            not self.experiment_registry_file.exists()
+            or self.experiment_registry_file.stat().st_size == 0
+        ):
+            # Create empty registry file
+            self._save_registry({})
 
     def get_experiment_dir(self, experiment_name: str) -> Path:
         """
@@ -265,14 +279,29 @@ class PathManager:
         Returns:
             Dictionary containing the experiment registry
         """
-        if not self.experiment_registry_file.exists():
-            return {}
+        if (
+            not self.experiment_registry_file.exists()
+            or self.experiment_registry_file.stat().st_size == 0
+        ):
+            # Initialize an empty registry
+            empty_registry = {}
+            self._save_registry(empty_registry)
+            return empty_registry
 
         try:
             with open(self.experiment_registry_file) as f:
-                return json.load(f)
-        except Exception as e:
+                content = f.read().strip()
+                if not content:  # Empty file
+                    return {}
+                return json.loads(content)
+        except json.JSONDecodeError as e:
             logger.error(f"Error loading experiment registry: {e}")
+            logger.info("Reinitializing registry file with empty registry")
+            empty_registry = {}
+            self._save_registry(empty_registry)
+            return empty_registry
+        except Exception as e:
+            logger.error(f"Unexpected error loading experiment registry: {e}")
             return {}
 
     def _save_registry(self, registry: Dict) -> None:

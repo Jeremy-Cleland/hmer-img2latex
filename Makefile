@@ -43,15 +43,29 @@ dirs:
 	@echo "Directories created"
 
 # Download dataset
-download-data:
-	@echo "Downloading IM2LATEX dataset..."
-	$(PYTHON) -c "import kagglehub; kagglehub.dataset_download('shahrukhkhan/im2latex100k')"
-	@echo "Dataset downloaded successfully"
-
 # Training targets
 train:
-	@echo "Starting training using config: $(CONFIG)"
-	$(PYTHON) -m img2latex.cli train --config-path $(CONFIG) --experiment-name $(EXPERIMENT)
+	@if [ -z "$(EXPERIMENT)" ]; then \
+		BASE_NAME="img2latex"; \
+	else \
+		BASE_NAME="$(EXPERIMENT)"; \
+	fi; \
+	if [[ "$$BASE_NAME" == *_v* ]]; then \
+		echo "Error: Please provide a base experiment name without version suffix (_v1, _v2, etc.)"; \
+		exit 1; \
+	fi; \
+	VERSION=1; \
+	while [ -d "$(OUTPUTS_DIR)/$${BASE_NAME}_v$${VERSION}" ]; do \
+		VERSION=$$((VERSION + 1)); \
+	done; \
+	EXPERIMENT_NAME="$${BASE_NAME}"; \
+	echo "Starting training for experiment: $$EXPERIMENT_NAME (will be saved as $${BASE_NAME}_v$${VERSION})"; \
+	if [ -z "$(CONFIG)" ]; then \
+		CONFIG_PATH="img2latex/configs/config.yaml"; \
+	else \
+		CONFIG_PATH="$(CONFIG)"; \
+	fi; \
+	$(PYTHON) -m img2latex.cli train --config-path $$CONFIG_PATH --experiment-name $$EXPERIMENT_NAME
 
 train-resume:
 	@echo "Resuming training from checkpoint: $(MODEL)"
