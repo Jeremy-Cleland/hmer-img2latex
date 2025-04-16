@@ -8,10 +8,11 @@ experiment tracking capabilities.
 
 import json
 import os
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import numpy as np
 import pandas as pd
 
 from img2latex.utils.logging import get_logger
@@ -145,6 +146,9 @@ class ExperimentRegistry:
                 f"Cannot log metrics: Experiment {experiment_name} not found in registry"
             )
             return
+
+        # Convert metrics to JSON serializable format
+        metrics = self._convert_to_serializable(metrics)
 
         # Update registry with metrics
         if "metrics" not in registry[experiment_name]:
@@ -437,11 +441,53 @@ class ExperimentRegistry:
         Args:
             registry: Dictionary containing the experiment registry
         """
+        # Convert registry to serializable format
+        registry = self._convert_to_serializable(registry)
+
         try:
             with open(self.registry_file, "w") as f:
                 json.dump(registry, f, indent=2, sort_keys=True)
         except Exception as e:
             logger.error(f"Error saving experiment registry: {e}")
+
+    def _convert_to_serializable(self, obj):
+        """
+        Convert non-serializable objects to JSON serializable types.
+
+        Args:
+            obj: Object to convert
+
+        Returns:
+            Converted object that is JSON serializable
+        """
+        if obj is None:
+            return None
+        elif isinstance(obj, (np.integer, np.int32, np.int64)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float32, np.float64)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, dict):
+            return {k: self._convert_to_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._convert_to_serializable(i) for i in obj]
+        elif isinstance(obj, tuple):
+            return tuple(self._convert_to_serializable(i) for i in obj)
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        elif isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        elif (
+            hasattr(obj, "detach") and hasattr(obj, "cpu") and hasattr(obj, "numpy")
+        ):  # PyTorch tensor
+            return self._convert_to_serializable(obj.detach().cpu().numpy())
+        elif hasattr(obj, "tolist"):  # Handle other numpy-like types with tolist method
+            return obj.tolist()
+        elif hasattr(obj, "item"):  # Handle single-item numpy and torch types
+            return obj.item()
+        else:
+            return obj
 
     def _save_config(self, config_path: Path, config: Dict) -> None:
         """
@@ -451,6 +497,9 @@ class ExperimentRegistry:
             config_path: Path where the config should be saved
             config: Configuration dictionary
         """
+        # Convert config to serializable format
+        config = self._convert_to_serializable(config)
+
         try:
             # Determine format based on file extension
             if str(config_path).endswith(".json"):

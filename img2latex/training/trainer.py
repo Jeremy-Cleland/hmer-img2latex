@@ -16,7 +16,8 @@ from img2latex.data.utils import prepare_batch
 from img2latex.training.enhanced_metrics import generate_enhanced_metrics
 from img2latex.training.metrics import calculate_metrics, masked_accuracy
 from img2latex.utils.logging import get_logger
-from img2latex.utils.mps_utils import empty_cache, set_device
+from img2latex.utils.mps_utils import set_device
+from img2latex.utils.path_utils import path_manager
 from img2latex.utils.registry import experiment_registry
 
 logger = get_logger(__name__)
@@ -94,7 +95,11 @@ class Trainer:
         self.early_stopping_patience = training_config.get(
             "early_stopping_patience", 10
         )
+
+        # Use save_checkpoint_epochs if available, otherwise fall back to steps
+        self.save_checkpoint_epochs = training_config.get("save_checkpoint_epochs", 10)
         self.save_checkpoint_steps = training_config.get("save_checkpoint_steps", 1000)
+        self.use_epoch_checkpointing = "save_checkpoint_epochs" in training_config
 
         # Initialize step and epoch counters
         self.current_epoch = 0
@@ -258,6 +263,12 @@ class Trainer:
             leave=False,
         )
 
+        # Do a deep clean before starting the epoch
+        if self.device.type == "mps":
+            from img2latex.utils.mps_utils import deep_clean_memory
+
+            deep_clean_memory()
+
         for batch_idx, batch in enumerate(progress_bar):
             # Prepare batch
             images, targets = prepare_batch(
@@ -265,7 +276,7 @@ class Trainer:
             )
 
             # Zero the gradients
-            self.optimizer.zero_grad()
+            self.optimizer.zero_grad(set_to_none=True)  # More efficient memory clearing
 
             # Forward pass
             outputs = self.model(images, targets)
@@ -291,23 +302,44 @@ class Trainer:
             # Optimizer step
             self.optimizer.step()
 
-            # Calculate accuracy
-            acc, num_tokens = masked_accuracy(
+            # Get the loss value and then free the computational graph
+            loss_value = loss.item()
+            acc_value, num_tokens_value = masked_accuracy(
                 outputs, targets_shifted, self.tokenizer.pad_token_id
             )
 
+            # Free memory by explicitly removing references to tensors
+            del loss, outputs, images, targets, targets_shifted
+
             # Update counters
-            epoch_loss += loss.item() * batch_size
-            epoch_acc += acc * num_tokens
-            epoch_tokens += num_tokens
+            epoch_loss += loss_value * batch_size
+            epoch_acc += acc_value * num_tokens_value
+            epoch_tokens += num_tokens_value
             epoch_samples += batch_size
             self.global_step += 1
 
             # Update progress bar
-            progress_bar.set_postfix({"loss": loss.item(), "acc": acc})
+            progress_bar.set_postfix({"loss": loss_value, "acc": acc_value})
 
             # Save checkpoint if needed
-            if self.global_step % self.save_checkpoint_steps == 0:
+            if (
+                self.use_epoch_checkpointing
+                and (self.current_epoch + 1) % self.save_checkpoint_epochs == 0
+                and batch_idx == len(self.train_loader) - 1
+            ):
+                # Save at the end of epochs that are divisible by save_checkpoint_epochs
+                metrics = {
+                    "train_loss": epoch_loss / epoch_samples,
+                    "train_acc": epoch_acc / epoch_tokens,
+                }
+                self.save_checkpoint(
+                    epoch=self.current_epoch, step=self.global_step, metrics=metrics
+                )
+            elif (
+                not self.use_epoch_checkpointing
+                and self.global_step % self.save_checkpoint_steps == 0
+            ):
+                # Traditional step-based saving if epoch-based saving is not enabled
                 metrics = {
                     "train_loss": epoch_loss / epoch_samples,
                     "train_acc": epoch_acc / epoch_tokens,
@@ -316,9 +348,31 @@ class Trainer:
                     epoch=self.current_epoch, step=self.global_step, metrics=metrics
                 )
 
-            # Clean up GPU memory in MPS mode
-            if self.device.type == "mps" and batch_idx % 10 == 0:
-                empty_cache()
+            # Deep clean after saving checkpoint (for either type of checkpoint)
+            if (
+                self.use_epoch_checkpointing
+                and (self.current_epoch + 1) % self.save_checkpoint_epochs == 0
+                and batch_idx == len(self.train_loader) - 1
+            ) or (
+                not self.use_epoch_checkpointing
+                and self.global_step % self.save_checkpoint_steps == 0
+            ):
+                if self.device.type == "mps":
+                    from img2latex.utils.mps_utils import deep_clean_memory
+
+                    deep_clean_memory()
+
+            # Clean up GPU memory in MPS mode - do more frequently (every 5 batches)
+            if self.device.type == "mps":
+                from img2latex.utils.mps_utils import empty_cache
+
+                if batch_idx % 5 == 0:
+                    empty_cache(force_gc=True)
+                # Perform a deeper clean periodically
+                if batch_idx % 50 == 0:
+                    from img2latex.utils.mps_utils import deep_clean_memory
+
+                    deep_clean_memory()
 
         # Calculate epoch metrics
         metrics = {
@@ -350,6 +404,12 @@ class Trainer:
         """
         self.model.eval()
 
+        # Do a deep clean before starting validation
+        if self.device.type == "mps":
+            from img2latex.utils.mps_utils import deep_clean_memory
+
+            deep_clean_memory()
+
         val_loss = 0.0
         val_acc = 0.0
         val_tokens = 0
@@ -371,107 +431,181 @@ class Trainer:
 
         with torch.no_grad():
             for batch_idx, batch in enumerate(progress_bar):
-                # Prepare batch
-                images, targets = prepare_batch(
-                    batch, self.device, model_type=self.config["model"]["name"]
-                )
+                try:
+                    # Prepare batch
+                    images, targets = prepare_batch(
+                        batch, self.device, model_type=self.config["model"]["name"]
+                    )
 
-                # Forward pass
-                outputs = self.model(images, targets)
+                    # Forward pass
+                    outputs = self.model(images, targets)
 
-                # Reshape for loss calculation
-                batch_size, seq_length, vocab_size = outputs.shape
-                targets_shifted = targets[:, 1:]  # Skip the first token (START token)
+                    # Reshape for loss calculation
+                    batch_size, seq_length, vocab_size = outputs.shape
+                    targets_shifted = targets[
+                        :, 1:
+                    ]  # Skip the first token (START token)
 
-                # Calculate loss
-                loss = self.criterion(
-                    outputs.reshape(-1, vocab_size), targets_shifted.reshape(-1)
-                )
+                    # Calculate loss
+                    loss = self.criterion(
+                        outputs.reshape(-1, vocab_size), targets_shifted.reshape(-1)
+                    )
 
-                # Calculate accuracy
-                acc, num_tokens = masked_accuracy(
-                    outputs, targets_shifted, self.tokenizer.pad_token_id
-                )
+                    # Calculate accuracy
+                    acc, num_tokens = masked_accuracy(
+                        outputs, targets_shifted, self.tokenizer.pad_token_id
+                    )
 
-                # Update counters
-                val_loss += loss.item() * batch_size
-                val_acc += acc * num_tokens
-                val_tokens += num_tokens
-                val_samples += batch_size
+                    # Store values before freeing memory
+                    loss_value = loss.item()
+                    acc_value = acc
 
-                # Update progress bar
-                progress_bar.set_postfix({"loss": loss.item(), "acc": acc})
+                    # Update counters
+                    val_loss += loss_value * batch_size
+                    val_acc += acc_value * num_tokens
+                    val_tokens += num_tokens
+                    val_samples += batch_size
 
-                # Get predictions for metric calculation
-                # We'll use a subset of the validation set for BLEU and Levenshtein metrics
-                if batch_idx < 10:  # Limit to first 10 batches to save time
-                    pred_ids = torch.argmax(outputs, dim=-1).cpu().numpy()
-                    target_ids = targets_shifted.cpu().numpy()
+                    # Update progress bar
+                    progress_bar.set_postfix({"loss": loss_value, "acc": acc_value})
 
-                    # Convert to list of lists
-                    for i in range(batch_size):
-                        # Get masks for non-padding tokens
-                        pred_mask = pred_ids[i] != self.tokenizer.pad_token_id
-                        target_mask = target_ids[i] != self.tokenizer.pad_token_id
+                    # Get predictions for metric calculation
+                    # We'll use a subset of the validation set for BLEU and Levenshtein metrics
+                    if batch_idx < 10:  # Limit to first 10 batches to save time
+                        pred_ids = torch.argmax(outputs, dim=-1).cpu().numpy()
+                        target_ids = targets_shifted.cpu().numpy()
 
-                        # Get non-padding tokens
-                        pred_tokens = pred_ids[i][pred_mask].tolist()
-                        target_tokens = target_ids[i][target_mask].tolist()
+                        # Convert to list of lists
+                        for i in range(batch_size):
+                            # Get masks for non-padding tokens
+                            pred_mask = pred_ids[i] != self.tokenizer.pad_token_id
+                            target_mask = target_ids[i] != self.tokenizer.pad_token_id
 
-                        # Add to lists
-                        all_predictions.append(pred_tokens)
-                        all_targets.append(target_tokens)
+                            # Get non-padding tokens
+                            pred_tokens = pred_ids[i][pred_mask].tolist()
+                            target_tokens = target_ids[i][target_mask].tolist()
 
-                    # Store first batch for enhanced metrics
-                    if batch_idx == 0:
-                        enhanced_metrics_batch = outputs
-                        enhanced_metrics_targets = targets_shifted
+                            # Add to lists
+                            all_predictions.append(pred_tokens)
+                            all_targets.append(target_tokens)
 
-                # Clean up GPU memory in MPS mode
-                if self.device.type == "mps" and batch_idx % 10 == 0:
-                    empty_cache()
+                        # Store first batch for enhanced metrics (make copies to avoid memory issues)
+                        if batch_idx == 0:
+                            enhanced_metrics_batch = outputs.detach().clone()
+                            enhanced_metrics_targets = targets_shifted.detach().clone()
 
-        # Calculate validation metrics
-        metrics = {
-            "val_loss": val_loss / val_samples,
-            "val_acc": val_acc / val_tokens,
-            "epoch": self.current_epoch + 1,
-            "step": self.global_step,
-        }
+                    # Free memory explicitly
+                    del outputs, loss, images, targets, targets_shifted
+
+                    # Clean up GPU memory in MPS mode more aggressively
+                    if self.device.type == "mps":
+                        # Clean up more frequently
+                        if batch_idx % 5 == 0:
+                            from img2latex.utils.mps_utils import empty_cache
+
+                            empty_cache(force_gc=True)
+
+                        # Perform deep clean periodically
+                        if batch_idx % 25 == 0 and batch_idx > 0:
+                            from img2latex.utils.mps_utils import deep_clean_memory
+
+                            deep_clean_memory()
+
+                except RuntimeError as e:
+                    # Handle out of memory errors gracefully
+                    if "out of memory" in str(e).lower():
+                        logger.warning(
+                            f"Out of memory during validation at batch {batch_idx}. Cleaning memory and continuing."
+                        )
+
+                        # Do an aggressive memory cleanup
+                        if self.device.type == "mps":
+                            from img2latex.utils.mps_utils import deep_clean_memory
+
+                            deep_clean_memory()
+
+                        # Skip this batch and continue
+                        continue
+                    else:
+                        # Re-raise other errors
+                        raise
+
+        # Calculate validation metrics with safety checks to avoid division by zero
+        if val_samples > 0 and val_tokens > 0:
+            metrics = {
+                "val_loss": val_loss / val_samples,
+                "val_acc": val_acc / val_tokens,
+                "epoch": self.current_epoch + 1,
+                "step": self.global_step,
+            }
+        else:
+            # Fallback if no valid samples were processed
+            metrics = {
+                "val_loss": float("inf"),
+                "val_acc": 0.0,
+                "epoch": self.current_epoch + 1,
+                "step": self.global_step,
+            }
 
         # Calculate BLEU and Levenshtein metrics
         if all_predictions:
-            extra_metrics = calculate_metrics(all_predictions, all_targets)
-            metrics.update(
-                {
-                    "val_bleu": extra_metrics["bleu"],
-                    "val_levenshtein": extra_metrics["levenshtein"],
-                }
-            )
-
-            # Generate enhanced metrics if we have stored a batch
-            if (
-                enhanced_metrics_batch is not None
-                and enhanced_metrics_targets is not None
-            ):
-                # Get experiment paths from registry
-                experiment_paths = experiment_registry.get_experiment_paths(
-                    self.experiment_name
+            try:
+                extra_metrics = calculate_metrics(all_predictions, all_targets)
+                metrics.update(
+                    {
+                        "val_bleu": extra_metrics["bleu"],
+                        "val_levenshtein": extra_metrics["levenshtein"],
+                    }
                 )
-                metrics_dir = experiment_paths.get("metrics_dir", "")
 
-                # Generate enhanced metrics
-                generate_enhanced_metrics(
-                    enhanced_metrics_batch,
-                    enhanced_metrics_targets,
-                    all_predictions,
-                    all_targets,
-                    self.tokenizer,
-                    num_samples=5,
-                    experiment_name=self.experiment_name,
-                    metrics_dir=metrics_dir,
-                    epoch=self.current_epoch,
-                    save_to_file=True,
+                # Generate enhanced metrics if we have stored a batch
+                if (
+                    enhanced_metrics_batch is not None
+                    and enhanced_metrics_targets is not None
+                ):
+                    try:
+                        # Do a memory cleanup before generating metrics
+                        if self.device.type == "mps":
+                            from img2latex.utils.mps_utils import empty_cache
+
+                            empty_cache(force_gc=True)
+
+                        # Get metrics directory directly from path_manager
+                        metrics_dir = path_manager.get_metrics_dir(self.experiment_name)
+
+                        # Generate enhanced metrics
+                        generate_enhanced_metrics(
+                            enhanced_metrics_batch,
+                            enhanced_metrics_targets,
+                            all_predictions,
+                            all_targets,
+                            self.tokenizer,
+                            num_samples=min(
+                                5, len(all_predictions)
+                            ),  # Ensure we don't exceed available samples
+                            experiment_name=self.experiment_name,
+                            metrics_dir=metrics_dir,
+                            epoch=self.current_epoch,
+                            save_to_file=True,
+                        )
+                    except Exception as e:
+                        logger.error(f"Error generating enhanced metrics: {e}")
+                    finally:
+                        # Clean up enhanced metrics tensors explicitly
+                        del enhanced_metrics_batch
+                        del enhanced_metrics_targets
+
+                        if self.device.type == "mps":
+                            from img2latex.utils.mps_utils import deep_clean_memory
+
+                            deep_clean_memory()
+            except Exception as e:
+                logger.error(f"Error calculating additional metrics: {e}")
+                metrics.update(
+                    {
+                        "val_bleu": 0.0,
+                        "val_levenshtein": 0.0,
+                    }
                 )
 
         # Log metrics
@@ -507,48 +641,128 @@ class Trainer:
         # Update experiment status
         experiment_registry.update_experiment_status(self.experiment_name, "training")
 
+        # Set smaller batch sizes for MPS if needed
+        if self.device.type == "mps":
+            # Check available MPS memory
+            import os
+
+            import torch
+
+            try:
+                rec_max = torch.mps.recommended_max_memory()
+                # If we have less than 6GB of available memory, reduce batch sizes
+                if rec_max < 6 * (1024**3):
+                    train_batch_size = self.config.get("data", {}).get(
+                        "batch_size", 128
+                    )
+                    if train_batch_size > 32:
+                        new_batch_size = 32
+                        logger.warning(
+                            f"Limited MPS memory detected ({rec_max / (1024**3):.2f}GB). Reducing batch size from {train_batch_size} to {new_batch_size}"
+                        )
+                        # Set environment variable for batch size override
+                        os.environ["MPS_BATCH_SIZE_OVERRIDE"] = str(new_batch_size)
+            except Exception as e:
+                logger.warning(f"Error checking MPS memory: {e}")
+
         # Training loop
         for epoch in range(self.current_epoch, self.max_epochs):
             self.current_epoch = epoch
 
-            # Train for one epoch
-            train_metrics = self.train_epoch()
+            # Clean up memory at the start of each epoch
+            if self.device.type == "mps":
+                from img2latex.utils.mps_utils import deep_clean_memory
 
-            # Validate
-            val_metrics = self.validate()
+                deep_clean_memory()
 
-            # Check for improvement
-            if val_metrics["val_loss"] < self.best_val_loss:
-                self.best_val_loss = val_metrics["val_loss"]
-                self.best_val_metrics = val_metrics
-                self.patience_counter = 0
+            try:
+                # Train for one epoch
+                train_metrics = self.train_epoch()
 
-                # Save best checkpoint
-                self.save_checkpoint(
-                    epoch=epoch,
-                    step=self.global_step,
-                    metrics=val_metrics,
-                    is_best=True,
-                )
-            else:
-                self.patience_counter += 1
-                logger.info(
-                    f"No improvement for {self.patience_counter} epochs "
-                    f"(best val_loss: {self.best_val_loss:.4f})"
-                )
+                # Clean up memory between training and validation
+                if self.device.type == "mps":
+                    from img2latex.utils.mps_utils import deep_clean_memory
 
-                # Save checkpoint
-                self.save_checkpoint(
-                    epoch=epoch, step=self.global_step, metrics=val_metrics
-                )
+                    deep_clean_memory()
 
-                # Early stopping
-                if self.patience_counter >= self.early_stopping_patience:
-                    logger.info(
-                        f"Early stopping after {epoch + 1} epochs "
-                        f"({self.patience_counter} epochs without improvement)"
+                # Validate
+                val_metrics = self.validate()
+
+                # Check for improvement
+                if val_metrics["val_loss"] < self.best_val_loss:
+                    self.best_val_loss = val_metrics["val_loss"]
+                    self.best_val_metrics = val_metrics
+                    self.patience_counter = 0
+
+                    # Save best checkpoint
+                    self.save_checkpoint(
+                        epoch=epoch,
+                        step=self.global_step,
+                        metrics=val_metrics,
+                        is_best=True,
                     )
-                    break
+                else:
+                    self.patience_counter += 1
+                    logger.info(
+                        f"No improvement for {self.patience_counter} epochs "
+                        f"(best val_loss: {self.best_val_loss:.4f})"
+                    )
+
+                    # Save checkpoint
+                    self.save_checkpoint(
+                        epoch=epoch, step=self.global_step, metrics=val_metrics
+                    )
+
+                    # Early stopping
+                    if self.patience_counter >= self.early_stopping_patience:
+                        logger.info(
+                            f"Early stopping after {epoch + 1} epochs "
+                            f"({self.patience_counter} epochs without improvement)"
+                        )
+                        break
+
+                # Clean up memory at the end of each epoch
+                if self.device.type == "mps":
+                    from img2latex.utils.mps_utils import deep_clean_memory
+
+                    deep_clean_memory()
+
+            except RuntimeError as e:
+                # Handle out of memory errors gracefully
+                if "out of memory" in str(e).lower():
+                    logger.error(f"Out of memory error during epoch {epoch + 1}: {e}")
+
+                    # Clean memory and try to reduce batch size for next epoch
+                    if self.device.type == "mps":
+                        from img2latex.utils.mps_utils import deep_clean_memory
+
+                        deep_clean_memory()
+
+                        # Try to reduce batch size
+                        if hasattr(self.train_loader, "batch_sampler") and hasattr(
+                            self.train_loader.batch_sampler, "batch_size"
+                        ):
+                            current_size = self.train_loader.batch_sampler.batch_size
+                            new_size = max(8, current_size // 2)  # Don't go below 8
+
+                            if new_size < current_size:
+                                logger.warning(
+                                    f"Reducing batch size from {current_size} to {new_size} due to OOM error"
+                                )
+                                self.train_loader.batch_sampler.batch_size = new_size
+
+                                # Also adjust val loader if possible
+                                if hasattr(self.val_loader, "batch_sampler"):
+                                    self.val_loader.batch_sampler.batch_size = new_size
+
+                                # Continue to next epoch with reduced batch size
+                                continue
+
+                    # If we can't adjust, re-raise the error
+                    raise
+                else:
+                    # Re-raise other errors
+                    raise
 
         # Update experiment status
         experiment_registry.update_experiment_status(self.experiment_name, "completed")

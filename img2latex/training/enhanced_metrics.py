@@ -161,7 +161,7 @@ def sample_predictions_and_targets(
                 token_id = pred_seq[idx]
                 token = tokenizer.id_to_token.get(token_id, "<UNK>")
                 confidence = pred_confidences[idx]
-                low_confidence_tokens.append((token, confidence))
+                low_confidence_tokens.append((token, float(confidence)))
 
         # Add sample to list
         samples.append(
@@ -173,7 +173,7 @@ def sample_predictions_and_targets(
                     {
                         "pred_token": tokenizer.id_to_token.get(t, "<UNK>"),
                         "confidence": float(c),
-                        "is_correct": t == target_seq[i]
+                        "is_correct": bool(t == target_seq[i])
                         if i < len(target_seq)
                         else None,
                     }
@@ -207,9 +207,11 @@ def save_enhanced_metrics(
 
     # Convert numpy values to Python types for JSON serialization
     def convert_numpy(obj):
-        if isinstance(obj, np.integer):
+        if obj is None:
+            return None
+        elif isinstance(obj, (np.integer, np.int32, np.int64)):
             return int(obj)
-        elif isinstance(obj, np.floating):
+        elif isinstance(obj, (np.floating, np.float32, np.float64)):
             return float(obj)
         elif isinstance(obj, np.ndarray):
             return obj.tolist()
@@ -217,6 +219,10 @@ def save_enhanced_metrics(
             return {k: convert_numpy(v) for k, v in obj.items()}
         elif isinstance(obj, list):
             return [convert_numpy(i) for i in obj]
+        elif isinstance(obj, torch.Tensor):
+            return convert_numpy(obj.detach().cpu().numpy())
+        elif isinstance(obj, np.bool_) or isinstance(obj, bool):
+            return bool(obj)
         else:
             return obj
 

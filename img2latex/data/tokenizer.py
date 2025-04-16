@@ -315,27 +315,67 @@ class LaTeXTokenizer:
             f"Loaded tokenizer from {file_path} with vocabulary size: {tokenizer.vocab_size}"
         )
         return tokenizer
-        
+
     def default_init(self):
         """
         Initialize the tokenizer with a minimal vocabulary for testing.
         """
         # Start with special tokens
         self._init_special_tokens()
-        
+
         # Add some common LaTeX tokens
         common_tokens = [
-            "+", "-", "=", "(", ")", "[", "]", "{", "}", "\\frac", "\\sum", "\\int",
-            "a", "b", "c", "x", "y", "z", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-            "\\alpha", "\\beta", "\\gamma", "\\delta", "\\theta", "\\pi", "\\sigma",
-            "\\mathbf", "\\mathrm", "\\mathcal", "\\limits", "_", "^", "\\infty"
+            "+",
+            "-",
+            "=",
+            "(",
+            ")",
+            "[",
+            "]",
+            "{",
+            "}",
+            "\\frac",
+            "\\sum",
+            "\\int",
+            "a",
+            "b",
+            "c",
+            "x",
+            "y",
+            "z",
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "\\alpha",
+            "\\beta",
+            "\\gamma",
+            "\\delta",
+            "\\theta",
+            "\\pi",
+            "\\sigma",
+            "\\mathbf",
+            "\\mathrm",
+            "\\mathcal",
+            "\\limits",
+            "_",
+            "^",
+            "\\infty",
         ]
-        
+
         # Add common tokens to vocabulary
         for token in common_tokens:
             if token not in self.token_to_id:
                 self.token_to_id[token] = self.vocab_size
                 self.id_to_token[self.vocab_size] = token
                 self.vocab_size += 1
-                
-        logger.info(f"Initialized tokenizer with default vocabulary. Size: {self.vocab_size}")
+
+        logger.info(
+            f"Initialized tokenizer with default vocabulary. Size: {self.vocab_size}"
+        )

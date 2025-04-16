@@ -264,7 +264,9 @@ def optimize_for_inference(model: torch.nn.Module) -> torch.nn.Module:
     return model
 
 
-def batch_size_finder(model, input_shape=(1, 64, 512), target_shape=128, start_batch=64, device=None):
+def batch_size_finder(
+    model, input_shape=(1, 64, 512), target_shape=128, start_batch=64, device=None
+):
     """Find optimal batch size for given model on Apple Silicon hardware."""
     if device is None:
         device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -279,7 +281,9 @@ def batch_size_finder(model, input_shape=(1, 64, 512), target_shape=128, start_b
         try:
             # Test with increasingly large batch sizes
             dummy_input = torch.randn(batch_size, *input_shape, device=device)
-            dummy_target = torch.ones(batch_size, target_shape, dtype=torch.long, device=device)
+            dummy_target = torch.ones(
+                batch_size, target_shape, dtype=torch.long, device=device
+            )
 
             # Warmup
             with torch.no_grad():
