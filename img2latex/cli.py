@@ -21,6 +21,9 @@ from img2latex.analysis import (
     images as images_app,
 )
 from img2latex.analysis import (
+    metrics as metrics_app,
+)
+from img2latex.analysis import (
     preprocess as preprocess_app,
 )
 from img2latex.analysis import (
@@ -52,6 +55,18 @@ logger = get_logger(__name__)
 # Create analysis sub-app
 analysis_app = typer.Typer(help="Analysis tools for img2latex")
 app.add_typer(analysis_app, name="analyze")
+# Register analysis sub-commands
+analysis_app.add_typer(images_app.app, name="images", help="Analyze images")
+analysis_app.add_typer(project_app.app, name="project", help="Analyze project setup")
+analysis_app.add_typer(curves_app.app, name="curves", help="Plot learning curves")
+analysis_app.add_typer(
+    tokens_app.app, name="tokens", help="Analyze token distributions"
+)
+analysis_app.add_typer(errors_app.app, name="errors", help="Perform error analysis")
+analysis_app.add_typer(
+    preprocess_app.app, name="preprocess", help="Visualize preprocessing steps"
+)
+analysis_app.add_typer(metrics_app.app, name="metrics", help="Analyze model metrics")
 
 
 def load_config(config_path: str) -> Dict:

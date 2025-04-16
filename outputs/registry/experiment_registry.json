@@ -568,5 +568,77 @@
       "cnn_lstm",
       "lr_0.001"
     ]
+  },
+  "img2latex_v3": {
+    "config_path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v3/config.yaml",
+    "creation_time": "2025-04-16 17:48:52",
+    "description": "Image-to-LaTeX model: resnet_lstm with 256 embedding dim, 256 hidden dim. Training with lr=0.001, batch_size=128, max_epochs=100",
+    "last_updated": "2025-04-16 18:02:33",
+    "metrics": {
+      "steps": {
+        "1": {
+          "epoch": 1,
+          "step": 295,
+          "train_acc": 0.4108221361206582,
+          "train_loss": 2.870228469678232,
+          "val_acc": 0.48211666803987807,
+          "val_loss": 2.380621630715355
+        },
+        "2": {
+          "epoch": 2,
+          "step": 590,
+          "train_acc": 0.4982235998063864,
+          "train_loss": 2.2844902528397313,
+          "val_acc": 0.5173930954931202,
+          "val_loss": 2.1570183691870213
+        },
+        "3": {
+          "epoch": 3,
+          "step": 885,
+          "train_acc": 0.5188109035898959,
+          "train_loss": 2.146025720109816,
+          "val_acc": 0.5331960121941172,
+          "val_loss": 2.063384873152064
+        }
+      }
+    },
+    "path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v3",
+    "status": "training",
+    "tags": [
+      "resnet_lstm",
+      "lr_0.001"
+    ]
+  },
+  "img2latex_v4": {
+    "config_path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v4/config.yaml",
+    "creation_time": "2025-04-16 18:07:06",
+    "description": "Image-to-LaTeX model: resnet_lstm with 256 embedding dim, 256 hidden dim. Training with lr=0.001, batch_size=128, max_epochs=100",
+    "last_updated": "2025-04-16 18:16:04",
+    "metrics": {
+      "steps": {
+        "1": {
+          "epoch": 1,
+          "step": 295,
+          "train_acc": 0.41121837288269597,
+          "train_loss": 2.8685598557813345,
+          "val_acc": 0.48212078767405453,
+          "val_loss": 2.3823065226793005
+        },
+        "2": {
+          "epoch": 2,
+          "step": 590,
+          "train_acc": 0.4977377271179016,
+          "train_loss": 2.28739804141508,
+          "val_acc": 0.5170449864052072,
+          "val_loss": 2.159344091836982
+        }
+      }
+    },
+    "path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v4",
+    "status": "training",
+    "tags": [
+      "resnet_lstm",
+      "lr_0.001"
+    ]
   }
 }

@@ -14,7 +14,7 @@ data:
 
 # Model settings
 model:
-  name: "cnn_lstm"  # Options: "cnn_lstm", "resnet_lstm"
+  name: "resnet_lstm"  # Options: "cnn_lstm", "resnet_lstm"
   # Encoder settings
   encoder:
     # CNN encoder settings (used when model.name = "cnn_lstm")

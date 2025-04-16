@@ -13,6 +13,7 @@ This project implements a deep learning-based tool for converting images of math
 - Support for Apple Silicon (M-series) through MPS acceleration
 - Optional beam search decoding for improved prediction quality
 - Evaluation using BLEU and Levenshtein distance metrics
+- Comprehensive metrics and analysis tools
 
 ## Installation
 
@@ -40,7 +41,102 @@ data/
 
 Each line in the split files has the format: `<image_file> <formula_index>`, where `<formula_index>` is the line number in the formulas file.
 
-### Dataset Analysis
+## Commands
+
+### Training and Inference
+
+```bash
+# Train a new model
+make train EXPERIMENT=experiment_name CONFIG=path/to/config.yaml
+
+# Resume training from a checkpoint
+make train-resume MODEL=path/to/checkpoint.pt EXPERIMENT=experiment_name
+
+# Run prediction on an image
+make predict MODEL=path/to/checkpoint.pt IMAGE=path/to/image.png
+
+# Evaluate model on test set
+make evaluate MODEL=path/to/checkpoint.pt
+```
+
+### CLI Commands
+
+You can also use the CLI directly for more options:
+
+```bash
+# Training with custom parameters
+python -m img2latex.cli train --config-path path/to/config.yaml --experiment-name experiment_name --device cuda
+
+# Prediction with beam search
+python -m img2latex.cli predict checkpoint.pt image.png --beam-size 5 --max-length 150
+
+# Evaluation with custom batch size
+python -m img2latex.cli evaluate checkpoint.pt data_dir --split test --batch-size 64 --beam-size 3
+```
+
+### Metrics and Analysis
+
+```bash
+# Visualize metrics for an experiment
+make metrics-visualize EXPERIMENT=experiment_name
+
+# Show latest metrics in a concise format
+make metrics-latest EXPERIMENT=experiment_name
+
+# Compare metrics across different experiments
+make metrics-compare
+
+# Export metrics to CSV or JSON
+make metrics-export EXPERIMENT=experiment_name
+
+# Run specific analysis tools
+make analyze-images    # Analyze dataset images
+make analyze-curves    # Plot learning curves
+make analyze-tokens    # Analyze token distributions
+make analyze-errors    # Analyze prediction errors
+make analyze-preprocess # Visualize preprocessing steps
+
+# Run all analysis tools
+make analyze-all
+```
+
+### Development and Maintenance
+
+```bash
+# Initialize required directories
+make dirs
+
+# Lint code
+make lint
+
+# Format code
+make format
+
+# Run type checking
+make typecheck
+
+# Run all code quality checks
+make check-all
+
+# Clean Python artifacts
+make clean-pyc
+
+# Clean all outputs
+make clean-outputs
+
+# Clean only metrics files
+make clean-metrics
+
+# Clean everything
+make clean-all
+
+# Show help message with all commands
+make help
+```
+
+For detailed information about the metrics system, see [README_METRICS.md](README_METRICS.md).
+
+## Dataset Analysis
 
 We conducted a comprehensive analysis of the 103,536 images in the dataset with the following findings:
 
@@ -66,26 +162,6 @@ Based on this analysis, our implementation:
 2. Pads width to 800px to accommodate all formulas without information loss
 3. Converts RGB to grayscale for CNN models (keeping RGB for ResNet models)
 4. Normalizes pixel values from [0-255] to [0-1] range
-
-## Usage
-
-### Training
-
-```bash
-img2latex train --config-path img2latex/configs/config.yaml --experiment-name my_experiment
-```
-
-### Prediction
-
-```bash
-img2latex predict path/to/checkpoint.pt path/to/image.png
-```
-
-### Evaluation
-
-```bash
-img2latex evaluate path/to/checkpoint.pt path/to/data/directory --split test
-```
 
 ## Configuration
 

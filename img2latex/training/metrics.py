@@ -1,3 +1,4 @@
+# Path: img2latex/training/metrics.py
 """
 Evaluation metrics for the image-to-LaTeX model.
 """
@@ -523,8 +524,8 @@ def log_enhanced_metrics_summary(metrics: Dict[str, Any]) -> None:
 
 
 def compute_all_metrics(
-    outputs: torch.Tensor,
-    targets: torch.Tensor,
+    outputs: Optional[torch.Tensor],
+    targets: Optional[torch.Tensor],
     all_predictions: List[List[int]],
     all_targets: List[List[int]],
     tokenizer: LaTeXTokenizer,
@@ -539,8 +540,8 @@ def compute_all_metrics(
     Compute all metrics for model evaluation in a single call.
 
     Args:
-        outputs: Model outputs tensor (batch_size, seq_length, vocab_size)
-        targets: Target tensor (batch_size, seq_length)
+        outputs: Model outputs tensor (batch_size, seq_length, vocab_size) or None
+        targets: Target tensor (batch_size, seq_length) or None
         all_predictions: List of all predicted token sequences
         all_targets: List of all target token sequences
         tokenizer: LaTeX tokenizer
@@ -554,40 +555,46 @@ def compute_all_metrics(
     Returns:
         Dictionary of all metrics combined
     """
+    # Initialize combined metrics dictionary
+    combined_metrics = {}
+
     # 1. Detach tensors to CPU once to avoid redundant operations
-    outputs_cpu = _detach_to_cpu(outputs)
-    targets_cpu = _detach_to_cpu(targets)
     all_predictions_cpu = _detach_to_cpu(all_predictions)
     all_targets_cpu = _detach_to_cpu(all_targets)
 
-    # 2. Calculate basic accuracy
-    accuracy, num_tokens = masked_accuracy(
-        outputs_cpu, targets_cpu, tokenizer.pad_token_id
-    )
+    # 2. Calculate accuracy if outputs and targets are provided
+    if outputs is not None and targets is not None:
+        outputs_cpu = _detach_to_cpu(outputs)
+        targets_cpu = _detach_to_cpu(targets)
 
-    # 3. Calculate BLEU and Levenshtein metrics
+        accuracy, num_tokens = masked_accuracy(
+            outputs_cpu, targets_cpu, tokenizer.pad_token_id
+        )
+        combined_metrics["accuracy"] = accuracy
+        combined_metrics["num_tokens"] = num_tokens
+
+        # 5. Sample predictions and targets for visualization (only if outputs/targets provided)
+        sample_data = sample_predictions_and_targets(
+            outputs_cpu, targets_cpu, tokenizer, num_samples, confidence_threshold
+        )
+        combined_metrics["samples"] = sample_data
+    else:
+        # Set default values when no tensor inputs provided
+        combined_metrics["accuracy"] = 0.0
+        combined_metrics["num_tokens"] = 0
+        combined_metrics["samples"] = {"samples": []}
+
+    # 3. Calculate BLEU and Levenshtein metrics (always calculate on list inputs)
     basic_metrics = calculate_metrics(all_predictions_cpu, all_targets_cpu)
+    combined_metrics["bleu"] = basic_metrics["bleu"]
+    combined_metrics["levenshtein"] = basic_metrics["levenshtein"]
+    combined_metrics["batch_size"] = basic_metrics["batch_size"]
 
-    # 4. Analyze token distribution
+    # 4. Analyze token distribution (always calculate on list inputs)
     token_distribution = analyze_token_distribution(
         all_predictions_cpu, all_targets_cpu, tokenizer
     )
-
-    # 5. Sample predictions and targets for visualization
-    sample_data = sample_predictions_and_targets(
-        outputs_cpu, targets_cpu, tokenizer, num_samples, confidence_threshold
-    )
-
-    # 6. Combine all metrics
-    combined_metrics = {
-        "accuracy": accuracy,
-        "num_tokens": num_tokens,
-        "bleu": basic_metrics["bleu"],
-        "levenshtein": basic_metrics["levenshtein"],
-        "batch_size": basic_metrics["batch_size"],
-        "token_distribution": token_distribution,
-        "samples": sample_data["samples"],
-    }
+    combined_metrics["token_distribution"] = token_distribution
 
     # Add epoch if provided
     if epoch is not None:

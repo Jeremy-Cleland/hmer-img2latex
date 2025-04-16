@@ -1,6 +1,9 @@
 # This file marks img2latex.analysis as a Python package
 """
-Analysis modules for img2latex project.
+Analysis tools for the img2latex project.
+
+This package contains various tools for analyzing model performance,
+data distributions, and visualizing results.
 
 Important implementation notes:
 -------------------------------
