@@ -5,7 +5,6 @@ and pixel value distributions of LaTeX formula images.
 """
 
 import glob
-import json
 import os
 import random
 from collections import Counter, defaultdict
@@ -18,7 +17,7 @@ import yaml
 from matplotlib.gridspec import GridSpec
 from PIL import Image
 
-from img2latex.analysis.utils import ensure_output_dir
+from img2latex.analysis.utils import ensure_output_dir, save_json_file
 
 # Create Typer app
 app = typer.Typer(help="Analyze image characteristics for the img2latex model")
@@ -485,14 +484,8 @@ def analyze(
 
     # Save stats to JSON
     stats_path = output_path / "image_stats.json"
-    with open(stats_path, "w") as f:
-        # Convert numpy values to native Python types for JSON serialization
-        simplified_stats = {
-            k: v
-            for k, v in stats.items()
-            if k not in ["widths", "heights", "aspect_ratios"]
-        }
-        json.dump(simplified_stats, f, indent=2)
+    # Use save_json_file that handles NumPy types
+    save_json_file(stats, stats_path)
 
     # Print summary statistics
     print("\nImage Size Statistics:")

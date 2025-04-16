@@ -25,7 +25,7 @@ import typer
 import yaml
 from rich.console import Console
 
-from img2latex.analysis.utils import ensure_output_dir
+from img2latex.analysis.utils import ensure_output_dir, save_json_file
 
 # Suppress specific warnings if needed (e.g., from libraries)
 # warnings.filterwarnings("ignore", category=SomeWarningCategory)
@@ -605,8 +605,7 @@ def analyze(
         print(f"Failed to load configuration: {e}")
 
         # Save results and exit early
-        with open(output_path / "project_analysis.json", "w") as f:
-            json.dump(results, f, indent=2)
+        save_json_file(results, output_path / "project_analysis.json")
         return
 
     # Check for missing files
@@ -750,13 +749,15 @@ def analyze(
             results["model_consistency"] = {"status": "error", "error": str(e)}
             print(f"Error checking model consistency: {e}")
 
-    # Save analysis results
-    with open(output_path / "project_analysis.json", "w") as f:
-        json.dump(results, f, indent=2)
+    # Record analysis timestamp
+    from datetime import datetime
 
-    print(
-        f"Project analysis complete. Results saved to {output_path / 'project_analysis.json'}"
-    )
+    results["timestamp"] = datetime.now().isoformat()
+
+    # Save results
+    save_json_file(results, output_path / "project_analysis.json")
+
+    print(f"Project analysis complete. Results saved to {output_path}")
 
 
 if __name__ == "__main__":

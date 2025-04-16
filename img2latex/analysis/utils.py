@@ -9,6 +9,25 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+import numpy as np
+
+
+class NumPyJSONEncoder(json.JSONEncoder):
+    """JSON encoder that handles NumPy data types.
+
+    This encoder converts NumPy arrays, ints, and floats to their Python equivalents
+    for proper JSON serialization.
+    """
+
+    def default(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, (np.int32, np.int64)):
+            return int(obj)
+        if isinstance(obj, (np.float32, np.float64)):
+            return float(obj)
+        return super().default(obj)
+
 
 def ensure_output_dir(base_dir: str, analysis_type: str) -> Path:
     """Ensure output directory exists, creating it if necessary.
@@ -63,7 +82,7 @@ def save_json_file(data: Dict[str, Any], file_path: Union[str, Path]) -> None:
         file_path: Path where to save the JSON file
     """
     with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+        json.dump(data, f, indent=2, cls=NumPyJSONEncoder)
 
 
 def save_csv_file(

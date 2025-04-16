@@ -10,7 +10,6 @@ Features:
 - Visualize token distributions
 """
 
-import json
 import os
 from collections import Counter
 from pathlib import Path
@@ -27,6 +26,7 @@ from img2latex.analysis.utils import (
     ensure_output_dir,
     load_csv_file,
     load_json_file,
+    save_json_file,
 )
 
 # Create Typer app
@@ -464,8 +464,7 @@ def analyze(
     }
 
     results_file = output_path / "token_analysis.json"
-    with open(results_file, "w") as f:
-        json.dump(results, f, indent=2)
+    save_json_file(results, results_file)
 
     console.print(
         f"[bold green]Token analysis complete. Results saved to {output_path}[/bold green]"

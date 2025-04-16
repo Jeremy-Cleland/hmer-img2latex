@@ -752,6 +752,10 @@ class Trainer:
                         epoch=epoch, step=self.global_step, metrics=val_metrics
                     )
 
+                    # Clear cache after non-improvement checkpoint
+                    if self.device.type == "mps":
+                        torch.mps.empty_cache()
+
                     # Early stopping
                     if self.patience_counter >= self.early_stopping_patience:
                         logger.info(
@@ -760,16 +764,20 @@ class Trainer:
                         )
                         break
 
-                # Clean up memory at the end of each epoch
-                if self.device.type == "mps":
-                    from img2latex.utils.mps_utils import deep_clean_memory
+                    # Ensure cache is cleared at end of epoch loop
+                    if self.device.type == "mps":
+                        torch.mps.empty_cache()
 
-                    deep_clean_memory()
+                    # Clean up memory at the end of each epoch
+                    if self.device.type == "mps":
+                        from img2latex.utils.mps_utils import deep_clean_memory
 
-                    # Add diagnostics for MPS memory usage
-                    print(
-                        f"Epoch {epoch + 1} - MPS allocated: {torch.mps.current_allocated_memory() / (1024**2):.2f} MB"
-                    )
+                        deep_clean_memory()
+
+                        # Add diagnostics for MPS memory usage
+                        print(
+                            f"Epoch {epoch + 1} - MPS allocated: {torch.mps.current_allocated_memory() / (1024**2):.2f} MB"
+                        )
 
             except RuntimeError as e:
                 # Handle out of memory errors gracefully
