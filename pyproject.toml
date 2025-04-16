@@ -3,11 +3,11 @@ requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "prime_vit"
+name = "img2latex"
 version = "0.1.0"
-description = "Mathematical expression recognition using PyTorch and Vision Transformers"
+description = "Image to LaTeX conversion using CNN-LSTM and ResNet-LSTM models"
 readme = "README.md"
-authors = [{ name = "AI Assistant" }]
+authors = [{ name = "Claude AI Assistant" }]
 requires-python = ">=3.8"
 license = { text = "MIT" }
 dependencies = [
@@ -23,14 +23,15 @@ dependencies = [
     "typer[all]>=0.7.0",
     "tensorboard>=2.10.0",
     "pillow>=9.0.0",
-    "kagglehub>=0.2.0",
+    "rich>=12.0.0",
+    "opencv-python>=4.5.0",
 ]
 
 [project.scripts]
-prime-vit = "prime_vit.__main__:main"
+img2latex = "img2latex.cli:app"
 
 [tool.setuptools]
-packages = ["prime_vit"]
+packages = ["img2latex"]
 
 [tool.ruff]
 line-length = 88

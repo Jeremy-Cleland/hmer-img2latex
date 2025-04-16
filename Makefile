@@ -3,10 +3,11 @@
 # Set default variables
 PYTHON := python
 PIP := pip
-CONFIG := img2latex/configs/default.yaml
-MODEL := outputs/cnn_lstm_256/checkpoints/best_model.pt
+CONFIG := img2latex/configs/config.yaml
+MODEL := outputs/img2latex_v1/checkpoints/best_checkpoint.pt
 IMAGE := data/test_images/sample.png
-EXPERIMENT := cnn_lstm
+EXPERIMENT := img2latex
+DATA_DIR := data
 CHECKPOINTS_DIR := outputs/checkpoints
 OUTPUTS_DIR := outputs
 TEST_IMAGES_DIR := data/test_images
@@ -23,7 +24,6 @@ clean-pyc:
 
 clean-outputs:
 	@echo "Removing all model outputs..."
-	rm -rf $(CHECKPOINTS_DIR)/*
 	rm -rf $(OUTPUTS_DIR)/*
 	@echo "Outputs directory completely cleaned"
 
@@ -33,13 +33,11 @@ clean-all: clean-pyc clean-outputs
 # Setup targets
 setup:
 	@echo "Installing dependencies..."
-	$(PIP) install torch torchvision
 	$(PIP) install -e .
 	@echo "Dependencies installed successfully"
 
 # Create necessary directories
 dirs:
-	@mkdir -p $(CHECKPOINTS_DIR)
 	@mkdir -p $(OUTPUTS_DIR)
 	@mkdir -p $(TEST_IMAGES_DIR)
 	@echo "Directories created"
@@ -53,47 +51,34 @@ download-data:
 # Training targets
 train:
 	@echo "Starting training using config: $(CONFIG)"
-	$(PYTHON) -m prime_vit train --config $(CONFIG)
+	$(PYTHON) -m img2latex.cli train --config-path $(CONFIG) --experiment-name $(EXPERIMENT)
+
+train-resume:
+	@echo "Resuming training from checkpoint: $(MODEL)"
+	$(PYTHON) -m img2latex.cli train --config-path $(CONFIG) --experiment-name $(EXPERIMENT) --checkpoint-path $(MODEL)
 
 # Prediction targets
 predict:
 	@echo "Running prediction on image: $(IMAGE) with model: $(MODEL)"
-	$(PYTHON) -m prime_vit predict --model $(MODEL) --config $(CONFIG) --image $(IMAGE)
-
-# Training with experiment versioning
-train-exp:
-	@if [ -z "$(EXPERIMENT)" ]; then \
-		BASE_NAME="im2latex"; \
-	else \
-		BASE_NAME="$(EXPERIMENT)"; \
-	fi; \
-	VERSION=1; \
-	while [ -d "$(OUTPUTS_DIR)/$${BASE_NAME}_v$${VERSION}" ]; do \
-		VERSION=$$((VERSION + 1)); \
-	done; \
-	EXP_NAME="$${BASE_NAME}_v$${VERSION}"; \
-	echo "Starting training for experiment: $$EXP_NAME"; \
-	mkdir -p $(OUTPUTS_DIR)/$$EXP_NAME; \
-	cp $(CONFIG) $(OUTPUTS_DIR)/$$EXP_NAME/; \
-	$(PYTHON) -m prime_vit train --config $(CONFIG) --output $(OUTPUTS_DIR)/$$EXP_NAME | tee $(OUTPUTS_DIR)/$$EXP_NAME/train.log
+	$(PYTHON) -m img2latex.cli predict $(MODEL) $(IMAGE)
 
 # Evaluation on test set
 evaluate:
 	@echo "Evaluating model $(MODEL) on test set"
-	$(PYTHON) -m prime_vit evaluate --model $(MODEL) --config $(CONFIG)
+	$(PYTHON) -m img2latex.cli evaluate $(MODEL) $(DATA_DIR) --split test
 
 # Code quality targets
 lint:
-	ruff check .
+	ruff check img2latex
 
 lint-fix:
-	ruff check --fix .
+	ruff check --fix img2latex
 
 format:
-	ruff format .
+	ruff format img2latex
 
 typecheck:
-	mypy .
+	mypy img2latex
 
 check-all: lint format typecheck
 
@@ -104,7 +89,7 @@ help:
 	@echo "  dirs              - Create necessary directories"
 	@echo "  download-data     - Download the IM2LATEX dataset"
 	@echo "  train             - Train the model (use CONFIG=path to customize)"
-	@echo "  train-exp         - Train with experiment versioning (use EXPERIMENT=name)"
+	@echo "  train-resume      - Resume training from a checkpoint"
 	@echo "  predict           - Run prediction on an image (use MODEL=path IMAGE=path)"
 	@echo "  evaluate          - Evaluate model on test set (use MODEL=path)"
 	@echo "  clean-pyc         - Remove Python file artifacts"
@@ -117,4 +102,4 @@ help:
 	@echo "  check-all         - Run all code quality checks"
 	@echo "  help              - Show this help message"
 
-.PHONY: clean-pyc clean-outputs clean-all setup dirs download-data train train-exp predict evaluate lint lint-fix format typecheck check-all help 
+.PHONY: clean-pyc clean-outputs clean-all setup dirs download-data train train-resume predict evaluate lint lint-fix format typecheck check-all help
