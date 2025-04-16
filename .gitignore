@@ -78,3 +78,6 @@ venv.bak/
 *.pt.tar.gz
 *.pth.tar.gz.part
 *.pt.tar.gz.part
+docs/implementaion journal.md
+outputs/formula_analysis/length_histogram_data.csv
+CLAUDE.md
