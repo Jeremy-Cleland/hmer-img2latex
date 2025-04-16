@@ -32,18 +32,62 @@ class PathManager:
                      determine the root directory automatically.
         """
         if root_dir is None:
-            # Try to find the project root directory automatically
+            # Try to find the project root directory automatically using multiple methods
+            # Start from the current module's directory
             current_dir = Path(os.path.dirname(os.path.realpath(__file__)))
-            self.root_dir = current_dir.parent.parent.parent  # utils -> img2latex -> project root
-
-            # Validate we have the correct root dir by checking for expected directories
-            if not (self.root_dir / "img2latex").exists():
-                raise ValueError(
+            
+            # Try to find root by walking up until we find the img2latex package
+            root_candidates = []
+            
+            # Method 1: Check parent directories for img2latex directory
+            temp_dir = current_dir
+            for _ in range(5):  # Limit search depth to avoid infinite loops
+                if (temp_dir / "img2latex").exists() or (temp_dir.parent / "img2latex").exists():
+                    root_candidates.append(temp_dir if (temp_dir / "img2latex").exists() else temp_dir.parent)
+                    break
+                temp_dir = temp_dir.parent
+            
+            # Method 2: Try to use module's package structure (utils -> img2latex -> project root)
+            if current_dir.name == "utils":
+                package_root = current_dir.parent.parent
+                if (package_root / "img2latex").exists():
+                    root_candidates.append(package_root)
+            
+            # Method 3: Try using current working directory
+            cwd = Path.cwd()
+            if (cwd / "img2latex").exists():
+                root_candidates.append(cwd)
+            
+            # Method 4: Look for specific project markers (Makefile, pyproject.toml)
+            for marker in ["Makefile", "pyproject.toml"]:
+                temp_dir = current_dir
+                for _ in range(5):  # Limit search depth
+                    if (temp_dir / marker).exists():
+                        if (temp_dir / "img2latex").exists():
+                            root_candidates.append(temp_dir)
+                            break
+                    temp_dir = temp_dir.parent
+            
+            # Choose the first valid candidate
+            if root_candidates:
+                self.root_dir = root_candidates[0]
+                logger.info(f"Automatically determined project root: {self.root_dir}")
+            else:
+                # Fallback to current directory with a warning
+                self.root_dir = cwd
+                logger.warning(
                     "Could not automatically determine project root directory. "
-                    "Please provide root_dir manually."
+                    f"Using current working directory: {self.root_dir}"
                 )
         else:
             self.root_dir = Path(root_dir)
+            
+        # Validate that we have the correct root dir
+        if not (self.root_dir / "img2latex").exists():
+            logger.warning(
+                f"The directory {self.root_dir} does not contain an 'img2latex' directory. "
+                "This might not be the correct project root."
+            )
 
         # Define standard paths
         self.img2latex_dir = self.root_dir / "img2latex"

@@ -19,8 +19,8 @@ model:
   encoder:
     # CNN encoder settings (used when model.name = "cnn_lstm")
     cnn:
-      img_height: 50
-      img_width: 200
+      img_height: 64
+      img_width: 800
       channels: 1
       conv_filters: [32, 64, 128]
       kernel_size: 3
@@ -28,8 +28,8 @@ model:
       padding: "same"
     # ResNet encoder settings (used when model.name = "resnet_lstm")
     resnet:
-      img_height: 224
-      img_width: 224
+      img_height: 64
+      img_width: 800
       channels: 3
       model_name: "resnet50"  # Options: "resnet18", "resnet34", "resnet50", "resnet101", "resnet152"
       freeze_backbone: true

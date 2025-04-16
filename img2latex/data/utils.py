@@ -15,9 +15,12 @@ from img2latex.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+# Import the custom transform
+from img2latex.data.transforms import ResizeWithAspectRatio
+
 def load_image(
     image_path: str,
-    img_size: Tuple[int, int] = (50, 200),
+    img_size: Tuple[int, int] = (64, 800),
     channels: int = 1,
     normalize: bool = True
 ) -> torch.Tensor:
@@ -41,14 +44,18 @@ def load_image(
         # Load the image
         img = Image.open(image_path)
         
-        # Convert to the appropriate mode
+        # Convert to the appropriate mode based on channels parameter
         if channels == 1 and img.mode != "L":
             img = img.convert("L")
         elif channels == 3 and img.mode != "RGB":
             img = img.convert("RGB")
         
-        # Resize the image
-        img = img.resize(img_size[::-1])  # PIL uses (width, height)
+        # Apply the same resize and padding transform used in the dataset
+        resize_transform = ResizeWithAspectRatio(
+            target_height=img_size[0],
+            target_width=img_size[1]
+        )
+        img = resize_transform(img)
         
         # Convert to numpy array
         img_array = np.array(img)
@@ -64,11 +71,18 @@ def load_image(
         img_tensor = torch.from_numpy(img_array).float()
         
         # Normalize to [0, 1]
+        img_tensor = img_tensor / 255.0
+        
+        # Apply additional normalization
         if normalize:
-            img_tensor = img_tensor / 255.0
-            
-            # Normalize to [-1, 1]
-            img_tensor = img_tensor * 2.0 - 1.0
+            if channels == 1:
+                # Normalize to [-1, 1] for grayscale
+                img_tensor = img_tensor * 2.0 - 1.0
+            else:
+                # Apply ImageNet normalization for RGB
+                mean = torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1)
+                std = torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1)
+                img_tensor = (img_tensor - mean) / std
         
         return img_tensor
     

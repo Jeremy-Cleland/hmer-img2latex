@@ -334,8 +334,17 @@ def evaluate(
             # Get raw formulas for reference
             raw_formulas = batch["raw_formulas"]
             
-            # Predict for each image in the batch
-            for i, img in enumerate(images):
+            # Process the entire batch at once using batch prediction
+            # This is much more efficient than processing images one by one
+            latex_predictions = predictor.predict_batch(
+                images=images,
+                beam_size=beam_size,
+                max_length=predictor.tokenizer.max_sequence_length,
+                batch_size=len(images)  # Process the whole batch at once
+            )
+            
+            # Process predictions and targets
+            for i, latex in enumerate(latex_predictions):
                 # Get the target formula
                 target_ids = targets[i].cpu().numpy().tolist()
                 
@@ -344,13 +353,6 @@ def evaluate(
                     idx for idx in target_ids 
                     if idx != predictor.tokenizer.pad_token_id
                 ]
-                
-                # Generate prediction
-                latex = predictor.predict(
-                    image=img,
-                    beam_size=beam_size,
-                    max_length=predictor.tokenizer.max_sequence_length
-                )
                 
                 # Convert prediction to token IDs
                 pred_ids = predictor.tokenizer.encode(latex)

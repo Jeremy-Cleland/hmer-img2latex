@@ -237,33 +237,123 @@ class Predictor:
             start_token_id = self.tokenizer.start_token_id
             end_token_id = self.tokenizer.end_token_id
             
-            # Generate sequences for the batch
-            with torch.no_grad():
-                for j in range(len(batch_images)):
-                    img_tensor = batch_tensor[j:j+1]  # Keep batch dimension
+            # For greedy search (non-beam search), we can process the whole batch at once
+            if beam_size == 0:
+                # Generate sequences for the batch efficiently with greedy search
+                with torch.no_grad():
+                    # Process the entire batch at once
+                    encoder_outputs = self.model.encoder(batch_tensor)
                     
-                    sequence = self.model.inference(
-                        image=img_tensor,
-                        start_token_id=start_token_id,
-                        end_token_id=end_token_id,
-                        max_length=max_length,
-                        beam_size=beam_size,
-                        temperature=temperature,
-                        top_k=top_k,
-                        top_p=top_p
-                    )
+                    # Initialize batch sequences with start tokens
+                    batch_size = batch_tensor.size(0)
+                    device = batch_tensor.device
+                    sequences = [[start_token_id] for _ in range(batch_size)]
                     
-                    # Convert sequence to LaTeX
-                    # Skip start token if present at the beginning
-                    if sequence[0] == start_token_id:
-                        sequence = sequence[1:]
-                    # Remove end token if present at the end
-                    if sequence and sequence[-1] == end_token_id:
-                        sequence = sequence[:-1]
+                    # Initialize hidden states
+                    hidden = None
                     
-                    # Decode sequence
-                    latex = self.tokenizer.decode(sequence)
-                    results.append(latex)
+                    # Generate tokens one by one for all sequences in the batch
+                    for _ in range(max_length):
+                        # Create a tensor with current tokens from all sequences
+                        current_tokens = [seq[-1] for seq in sequences]
+                        input_tokens = torch.tensor([[token] for token in current_tokens], device=device)
+                        
+                        # Reshape encoder outputs for the step
+                        step_encoder_outputs = encoder_outputs
+                        
+                        # Decode next tokens
+                        with torch.no_grad():
+                            # Get next token probabilities
+                            outputs = []
+                            for j, token in enumerate(input_tokens):
+                                # Get a slice of encoder output for this sequence
+                                encoder_output = step_encoder_outputs[j:j+1]
+                                
+                                output, new_hidden = self.model.decoder.decode_step(
+                                    encoder_output=encoder_output,
+                                    input_token=token,
+                                    hidden=hidden
+                                )
+                                outputs.append(output)
+                                
+                            # Get the predicted tokens
+                            if temperature > 0 and (top_k > 0 or top_p > 0):
+                                # Apply temperature and top-k/top-p sampling
+                                next_tokens = []
+                                for output in outputs:
+                                    logits = output.squeeze(1) / temperature
+                                    probs = torch.softmax(logits, dim=-1)
+                                    
+                                    # Apply top-k sampling
+                                    if top_k > 0:
+                                        top_k_probs, top_k_indices = torch.topk(probs, top_k)
+                                        probs_dist = torch.zeros_like(probs)
+                                        probs_dist.scatter_(-1, top_k_indices, top_k_probs)
+                                        probs = probs_dist / probs_dist.sum()
+                                    
+                                    # Apply top-p sampling
+                                    if top_p > 0:
+                                        sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+                                        cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+                                        
+                                        # Remove tokens with cumulative probability above threshold
+                                        sorted_indices_to_remove = cumulative_probs > top_p
+                                        
+                                        # Shift indices to the right to keep first token above threshold
+                                        sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                                        sorted_indices_to_remove[..., 0] = 0
+                                        
+                                        indices_to_remove = sorted_indices_to_remove.scatter(
+                                            -1, sorted_indices, sorted_indices_to_remove
+                                        )
+                                        probs[indices_to_remove] = 0
+                                        probs = probs / probs.sum()
+                                    
+                                    # Sample from the distribution
+                                    next_token = torch.multinomial(probs, 1).item()
+                                    next_tokens.append(next_token)
+                            else:
+                                # Greedy search - take argmax
+                                next_tokens = [torch.argmax(output.squeeze(1), dim=-1).item() for output in outputs]
+                            
+                        # Add tokens to sequences
+                        for j, token in enumerate(next_tokens):
+                            sequences[j].append(token)
+                    
+                        # Check if all sequences have reached end token
+                        if all(seq[-1] == end_token_id for seq in sequences):
+                            break
+            else:
+                # For beam search, process each image individually
+                with torch.no_grad():
+                    sequences = []
+                    for j in range(batch_tensor.size(0)):
+                        img_tensor = batch_tensor[j:j+1]  # Keep batch dimension
+                        
+                        sequence = self.model.inference(
+                            image=img_tensor,
+                            start_token_id=start_token_id,
+                            end_token_id=end_token_id,
+                            max_length=max_length,
+                            beam_size=beam_size,
+                            temperature=temperature,
+                            top_k=top_k,
+                            top_p=top_p
+                        )
+                        sequences.append(sequence)
+            
+            # Convert sequences to LaTeX
+            for sequence in sequences:
+                # Skip start token if present at the beginning
+                if sequence[0] == start_token_id:
+                    sequence = sequence[1:]
+                # Remove end token if present at the end
+                if sequence and sequence[-1] == end_token_id:
+                    sequence = sequence[:-1]
+                
+                # Decode sequence
+                latex = self.tokenizer.decode(sequence)
+                results.append(latex)
         
         return results
     
@@ -282,66 +372,26 @@ class Predictor:
         """
         # Determine image size based on model type
         if self.model_type == "cnn_lstm":
-            img_size = (50, 200)
+            img_size = (64, 800)
             channels = 1
         else:  # resnet_lstm
-            img_size = (224, 224)
+            img_size = (64, 800)
             channels = 3
         
         # Handle different input types
         if isinstance(image, str):
-            # Load image from path
+            # Load image from path using the utility function
             img_tensor = load_image(image, img_size, channels)
         elif isinstance(image, torch.Tensor):
-            # Use tensor as is
-            img_tensor = image
-            
-            # Check shape and convert if needed
-            if img_tensor.dim() == 2:
-                # Add channel dimension for grayscale
-                img_tensor = img_tensor.unsqueeze(0)
-            
-            # Resize if needed
-            if img_tensor.shape[-2:] != img_size:
-                img_tensor = torch.nn.functional.interpolate(
-                    img_tensor.unsqueeze(0),
-                    size=img_size,
-                    mode="bilinear",
-                    align_corners=False
-                ).squeeze(0)
-            
-            # Normalize if needed
-            if img_tensor.min() < 0 or img_tensor.max() > 1:
-                img_tensor = img_tensor / 255.0
-                # Normalize to [-1, 1]
-                img_tensor = img_tensor * 2.0 - 1.0
+            # For tensor input, process it appropriately
+            img_tensor = self._preprocess_tensor(image, img_size, channels)
         elif isinstance(image, np.ndarray):
-            # Convert numpy array to tensor
-            if image.ndim == 2:
-                # Grayscale
-                image = np.expand_dims(image, axis=0)
-            elif image.ndim == 3 and image.shape[0] not in [1, 3]:
-                # HWC to CHW
-                image = np.transpose(image, (2, 0, 1))
-            
-            img_tensor = torch.from_numpy(image).float()
-            
-            # Resize if needed
-            if img_tensor.shape[-2:] != img_size:
-                img_tensor = torch.nn.functional.interpolate(
-                    img_tensor.unsqueeze(0),
-                    size=img_size,
-                    mode="bilinear",
-                    align_corners=False
-                ).squeeze(0)
-            
-            # Normalize if needed
-            if img_tensor.min() < 0 or img_tensor.max() > 1:
-                img_tensor = img_tensor / 255.0
-                # Normalize to [-1, 1]
-                img_tensor = img_tensor * 2.0 - 1.0
+            # Convert numpy array to tensor and then process
+            tensor_image = self._numpy_to_tensor(image, channels)
+            img_tensor = self._preprocess_tensor(tensor_image, img_size, channels)
         elif isinstance(image, Image.Image):
-            # Convert PIL image to tensor
+            # Convert PIL image to tensor using the utility function logic
+            # First convert and resize
             if channels == 1 and image.mode != "L":
                 image = image.convert("L")
             elif channels == 3 and image.mode != "RGB":
@@ -350,22 +400,14 @@ class Predictor:
             # Resize the image
             image = image.resize(img_size[::-1])  # PIL uses (width, height)
             
-            # Convert to numpy array
+            # Convert to tensor using NumPy as intermediate
             img_array = np.array(image)
-            
-            # Add channel dimension for grayscale images
             if channels == 1:
                 img_array = np.expand_dims(img_array, axis=0)
             else:
-                # Rearrange from HWC to CHW
-                img_array = np.transpose(img_array, (2, 0, 1))
+                img_array = np.transpose(img_array, (2, 0, 1))  # HWC to CHW
             
-            # Convert to torch tensor
-            img_tensor = torch.from_numpy(img_array).float()
-            
-            # Normalize to [0, 1]
-            img_tensor = img_tensor / 255.0
-            
+            img_tensor = torch.from_numpy(img_array).float() / 255.0
             # Normalize to [-1, 1]
             img_tensor = img_tensor * 2.0 - 1.0
         else:
@@ -383,3 +425,65 @@ class Predictor:
             img_tensor = img_tensor.unsqueeze(0)
         
         return img_tensor
+    
+    def _preprocess_tensor(
+        self, 
+        tensor: torch.Tensor, 
+        img_size: Tuple[int, int],
+        channels: int
+    ) -> torch.Tensor:
+        """
+        Preprocess a tensor image.
+        
+        Args:
+            tensor: Image tensor
+            img_size: Target image size (height, width)
+            channels: Number of channels (1 for grayscale, 3 for RGB)
+            
+        Returns:
+            Preprocessed tensor
+        """
+        # Add channel dimension for grayscale if needed
+        if tensor.dim() == 2:
+            tensor = tensor.unsqueeze(0)
+        
+        # Resize if needed
+        if tensor.shape[-2:] != img_size:
+            tensor = torch.nn.functional.interpolate(
+                tensor.unsqueeze(0) if tensor.dim() == 3 else tensor,
+                size=img_size,
+                mode="bilinear",
+                align_corners=False
+            )
+            if tensor.dim() == 4 and tensor.shape[0] == 1:
+                tensor = tensor.squeeze(0)
+        
+        # Normalize if needed
+        if tensor.min() < 0 or tensor.max() > 1:
+            tensor = tensor / 255.0
+            # Normalize to [-1, 1]
+            tensor = tensor * 2.0 - 1.0
+        
+        return tensor
+    
+    def _numpy_to_tensor(self, array: np.ndarray, channels: int) -> torch.Tensor:
+        """
+        Convert a numpy array to a tensor with proper channel format.
+        
+        Args:
+            array: Numpy array
+            channels: Number of channels (1 for grayscale, 3 for RGB)
+            
+        Returns:
+            Tensor with proper channel format
+        """
+        # Handle different array formats
+        if array.ndim == 2:
+            # Grayscale image without channel dimension
+            array = np.expand_dims(array, axis=0)
+        elif array.ndim == 3 and array.shape[0] not in [1, 3]:
+            # HWC format, convert to CHW
+            array = np.transpose(array, (2, 0, 1))
+        
+        # Convert to torch tensor
+        return torch.from_numpy(array).float()

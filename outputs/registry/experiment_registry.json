@@ -1,0 +1,22 @@
+{
+  "v2_optimized": {
+    "creation_time": "2025-04-15 21:06:28",
+    "last_updated": "2025-04-15 21:06:28",
+    "metadata": {},
+    "path": "/Users/jeremy/hmer-im2latex/outputs/v2_optimized_v1",
+    "status": "training"
+  },
+  "v2_optimized_v1": {
+    "config_path": "/Users/jeremy/hmer-im2latex/outputs/v2_optimized_v1/config.yaml",
+    "creation_time": "2025-04-15 21:06:28",
+    "description": "Image-to-LaTeX model: cnn_lstm with 256 embedding dim, 256 hidden dim. Training with lr=0.001, batch_size=128, max_epochs=50",
+    "last_updated": "2025-04-15 21:06:28",
+    "metrics": {},
+    "path": "/Users/jeremy/hmer-im2latex/outputs/v2_optimized_v1",
+    "status": "created",
+    "tags": [
+      "cnn_lstm",
+      "lr_0.001"
+    ]
+  }
+}
