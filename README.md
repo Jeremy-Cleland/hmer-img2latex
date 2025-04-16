@@ -92,6 +92,7 @@ The `config.yaml` file contains settings for the model, training, and data. Key 
   - Height: 64 pixels (fixed)
   - Width: 800 pixels (padded)
   - Channels: 1 for CNN, 3 for ResNet
+- Maximum sequence length: 141 tokens (95th percentile of dataset formula lengths)
 - Embedding and hidden dimensions
 - Training parameters (learning rate, batch size, etc.)
 - Device selection (MPS, CUDA, or CPU)

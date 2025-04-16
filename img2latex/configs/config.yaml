@@ -9,8 +9,12 @@ data:
   formulas_file: "im2latex_formulas.norm.lst"
   img_dir: "img"
   batch_size: 128
-  num_workers: 4
-  max_seq_length: 150  # Maximum formula length
+  num_workers: 0  # Best performance in testing
+  max_seq_length: 141  # Maximum formula length (95th percentile)
+  # Memory optimization settings
+  load_in_memory: false  # Whether to load images into RAM (caution: high memory usage)
+  prefetch_factor: 2  # How many batches to prefetch (only used when num_workers > 0) 
+  persistent_workers: false  # Keep workers alive between iterations
 
 # Model settings
 model:

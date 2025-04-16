@@ -9,12 +9,41 @@ import json
 import os
 import random
 from collections import Counter, defaultdict
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 from matplotlib.gridspec import GridSpec
 from PIL import Image
+
+
+def ensure_output_dir(base_dir: str, analysis_type: str) -> Path:
+    """Ensure output directory exists, creating it if necessary.
+
+    Args:
+        base_dir: Base directory path (can be relative or absolute)
+        analysis_type: Type of analysis (subdirectory name)
+
+    Returns:
+        Path object to the full output directory
+    """
+    if os.path.isabs(base_dir):
+        # If absolute path is provided, use it directly
+        output_dir = Path(base_dir)
+    else:
+        # If relative path, create it under the project root
+        output_dir = Path(os.getcwd()) / base_dir
+
+    # Add analysis type subdirectory
+    if analysis_type:
+        output_dir = output_dir / analysis_type
+
+    # Ensure directory exists
+    output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Output directory set to: {output_dir}")
+
+    return output_dir
 
 
 def analyze_images(image_folder, num_samples=500, detailed_samples=100):
@@ -434,17 +463,17 @@ def visualize_pixel_values(stats, output_path, bg_color="#121212"):
 def main():
     # Set paths
     image_folder = os.path.join(os.getcwd(), "data", "img")
-    output_folder = os.path.join(os.getcwd(), "outputs", "analysis")
 
-    # Create output folder if it doesn't exist
-    os.makedirs(output_folder, exist_ok=True)
+    # Setup output directory
+    output_dir = ensure_output_dir("outputs", "image_analysis")
 
     # Analyze images
     print("Analyzing images...")
     stats = analyze_images(image_folder, num_samples=103537, detailed_samples=103537)
 
     # Save stats to JSON
-    with open(os.path.join(output_folder, "image_stats.json"), "w") as f:
+    stats_path = output_dir / "image_stats.json"
+    with open(stats_path, "w") as f:
         # Convert numpy values to native Python types for JSON serialization
         simplified_stats = {
             k: v
@@ -489,22 +518,22 @@ def main():
 
     # Create image grid
     print("\nCreating image grid...")
-    grid_output_path = os.path.join(output_folder, "formula_image_grid.png")
+    grid_output_path = output_dir / "formula_image_grid.png"
     create_image_grid(
         image_folder, grid_output_path, rows=5, cols=6, bg_color="#121212"
     )
 
     # Create size distribution visualization
     print("\nCreating size distribution visualization...")
-    dist_output_path = os.path.join(output_folder, "size_distribution.png")
+    dist_output_path = output_dir / "size_distribution.png"
     visualize_size_distribution(stats, dist_output_path, bg_color="#121212")
 
     # Create pixel value distribution visualization
     print("\nCreating pixel value distribution visualization...")
-    pixel_output_path = os.path.join(output_folder, "pixel_distribution.png")
+    pixel_output_path = output_dir / "pixel_distribution.png"
     visualize_pixel_values(stats, pixel_output_path, bg_color="#121212")
 
-    print(f"\nAnalysis complete. Results saved to {output_folder}")
+    print(f"\nAnalysis complete. Results saved to {output_dir}")
 
 
 if __name__ == "__main__":

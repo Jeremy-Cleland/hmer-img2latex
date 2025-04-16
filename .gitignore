@@ -1,6 +1,6 @@
 # data
 data/img/
-
+/Users/jeremy/hmer-im2latex/data/img
 
 img/
 *.png
@@ -68,3 +68,13 @@ ENV/
 env.bak/
 venv.bak/
 .python-version
+
+# models checkpoints 
+*.pth
+*.pt
+*.pth.tar
+*.pt.tar
+*.pth.tar.gz
+*.pt.tar.gz
+*.pth.tar.gz.part
+*.pt.tar.gz.part
