@@ -15,10 +15,10 @@ data:
   prefetch_factor: 2
   log_frequency: 1000
   eval_batch_size_multiplier: 2
-  max_eval_batch_size: 256
+  max_eval_batch_size: 128
   load_in_memory: false
   persistent_workers: true
-  pin_memory: true
+  pin_memory: false
 
 # Model settings
 model:
