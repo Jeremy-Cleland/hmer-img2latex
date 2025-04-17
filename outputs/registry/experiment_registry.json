@@ -883,9 +883,9 @@
   },
   "img2latex_v6": {
     "config_path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v6/config.yaml",
-    "creation_time": "2025-04-17 15:39:50",
-    "description": "Image-to-LaTeX model: resnet_lstm with 1024 embedding dim, 1024 hidden dim. Training with lr=0.001, batch_size=128, max_epochs=30",
-    "last_updated": "2025-04-17 15:39:50",
+    "creation_time": "2025-04-17 17:21:17",
+    "description": "Image-to-LaTeX model: resnet_lstm with 512 embedding dim, 512 hidden dim. Training with lr=0.001, batch_size=128, max_epochs=30",
+    "last_updated": "2025-04-17 17:21:17",
     "metrics": {},
     "path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v6",
     "status": "training",

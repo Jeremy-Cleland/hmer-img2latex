@@ -181,31 +181,33 @@ class ResNetEncoder(nn.Module):
                 "You'll need to convert your images to RGB format."
             )
 
-        # Load the pre-trained ResNet model without the classification head
+        # Load the pre-trained ResNet model
         if model_name == "resnet18":
-            self.resnet = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+            backbone = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
         elif model_name == "resnet34":
-            self.resnet = models.resnet34(weights=models.ResNet34_Weights.IMAGENET1K_V1)
+            backbone = models.resnet34(weights=models.ResNet34_Weights.IMAGENET1K_V1)
         elif model_name == "resnet50":
-            self.resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+            backbone = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
         elif model_name == "resnet101":
-            self.resnet = models.resnet101(
-                weights=models.ResNet101_Weights.IMAGENET1K_V1
-            )
+            backbone = models.resnet101(weights=models.ResNet101_Weights.IMAGENET1K_V1)
         elif model_name == "resnet152":
-            self.resnet = models.resnet152(
-                weights=models.ResNet152_Weights.IMAGENET1K_V1
-            )
+            backbone = models.resnet152(weights=models.ResNet152_Weights.IMAGENET1K_V1)
         else:
             raise ValueError(f"Invalid ResNet model name: {model_name}")
-
-        # Remove the final fully connected layer (classification head)
-        self.resnet = nn.Sequential(*list(self.resnet.children())[:-1])
-
-        # Freeze the ResNet weights if requested
+        # Extract all layers except the final fully-connected head
+        modules = list(backbone.children())[:-1]  # drop fc
+        self.resnet = nn.Sequential(*modules)
+        # Freeze the ResNet weights if requested, then optionally unfreeze last block
         if freeze_backbone:
+            # Freeze all parameters
             for param in self.resnet.parameters():
                 param.requires_grad = False
+            # Unfreeze the last residual block (layer4) if present
+            # children modules: conv1, bn1, relu, maxpool, layer1, layer2, layer3, layer4, avgpool
+            if len(modules) >= 2:
+                last_block = modules[-2]
+                for param in last_block.parameters():
+                    param.requires_grad = True
 
         # Add a flatten layer
         self.flatten = nn.Flatten()

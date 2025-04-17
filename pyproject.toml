@@ -39,7 +39,7 @@ target-version = "py38"
 lint.select = ["E", "F", "W", "I"]
 lint.ignore = ["E501"]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 
 [tool.mypy]

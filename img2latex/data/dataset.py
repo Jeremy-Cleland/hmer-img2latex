@@ -453,10 +453,21 @@ def create_data_loaders(
         "test": test_file,
     }
 
+    # Optional data augmentation only for training
+    try:
+        import torchvision.transforms as T
+        train_transform = T.Compose([
+            T.RandomRotation(degrees=5, fill=(255,)),
+            T.RandomAffine(degrees=0, translate=(0.02, 0.02), fill=(255,)),
+        ])
+    except ImportError:
+        train_transform = None
+
     # Create datasets for train/val/test
     datasets = {}
     for split in ["train", "val", "test"]:
-        # Configure dataset with preprocessing config for normalization
+        # Use augmentation for training split only
+        split_transform = train_transform if split == "train" else None
         datasets[split] = Im2LatexDataset(
             data_dir=data_dir,
             split_file=split_files[split],
@@ -465,6 +476,7 @@ def create_data_loaders(
             img_dir=img_dir,
             img_size=img_size,
             channels=channels,
+            transform=split_transform,
             max_samples=max_samples.get(split),
             load_in_memory=load_in_memory,
             log_frequency=log_frequency,

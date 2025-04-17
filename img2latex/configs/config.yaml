@@ -36,16 +36,16 @@ model:
       padding: "same"
     # ResNet encoder settings (used when model.name = "resnet_lstm")
     resnet:
-      img_height: 256
+      img_height: 128
       img_width: 800
       channels: 3
       model_name: "resnet50"  # Options: "resnet18", "resnet34", "resnet50", "resnet101", "resnet152"
       freeze_backbone: false  # Unfreeze backbone for fine-tuning
   # Embedding and decoder settings
-  embedding_dim: 1024
+  embedding_dim: 512
   decoder:
-    hidden_dim: 1024
-    lstm_layers: 3
+    hidden_dim: 512
+    lstm_layers: 2
     dropout: 0.3  # Increased dropout to reduce overfitting
     attention: true
 
@@ -72,7 +72,7 @@ evaluation:
 # Logging settings
 
 inference:
-  beam_size: 5        # Default beam size (0 = greedy); small beam for better decoding
+  beam_size: 2        # Default beam size (0 = greedy); small beam for better decoding
   max_length: 141     # Default maximum output sequence length
   temperature: 1.0    # Softmax temperature for sampling
   top_k: 0            # Top-k sampling parameter

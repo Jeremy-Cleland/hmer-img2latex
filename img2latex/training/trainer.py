@@ -94,6 +94,17 @@ class Trainer:
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, mode="min", factor=0.5, patience=2, verbose=True
         )
+        # Mixed precision training (AMP) on CUDA or MPS
+        if self.device.type in ("cuda", "mps"):
+            self.use_amp = True
+            # Only CUDA supports GradScaler; MPS will use autocast without scaling
+            if self.device.type == "cuda":
+                self.scaler = torch.amp.GradScaler()
+            else:
+                self.scaler = None
+        else:
+            self.use_amp = False
+            self.scaler = None
 
         # Create loss function with label smoothing
         self.criterion = nn.CrossEntropyLoss(
@@ -289,62 +300,86 @@ class Trainer:
 
         # Iterate over batches
         for batch_idx, batch in enumerate(pbar):
-            # Handle gradient accumulation
+            images, formulas = prepare_batch(batch, self.device)
+            # Determine targets (exclude start token)
+            targets = formulas[:, 1:]
+            # Select training path based on AMP and accumulation
             if self.accumulation_steps == 1:
-                # Standard case: no gradient accumulation
-                # Forward pass
-                images, formulas = prepare_batch(batch, self.device)
-                outputs = self.model(images, formulas)
-
-                # Calculate loss
-                # outputs shape: (batch_size, seq_length, vocab_size)
-                # formulas shape: (batch_size, seq_length)
-                # We need to exclude the last token (end token) in the targets
-                logits = outputs.transpose(1, 2)  # (batch_size, vocab_size, seq_length)
-                targets = formulas[
-                    :, 1:
-                ]  # Exclude the first token (start token) in targets
-                loss = self.criterion(logits, targets)
-
-                # Backward pass
-                loss.backward()
-
-                # Clip gradients
-                if self.grad_clip_norm > 0:
-                    nn.utils.clip_grad_norm_(
-                        self.model.parameters(), self.grad_clip_norm
-                    )
-
-                # Update weights
-                self.optimizer.step()
-                self.optimizer.zero_grad(set_to_none=True)
-            else:
-                # Gradient accumulation case
-                # Forward pass
-                images, formulas = prepare_batch(batch, self.device)
-                outputs = self.model(images, formulas)
-
-                # Calculate loss
-                logits = outputs.transpose(1, 2)
-                targets = formulas[:, 1:]
-                # Normalize loss by accumulation steps to keep the same scale
-                loss = self.criterion(logits, targets) / self.accumulation_steps
-                # Backward pass
-                loss.backward()
-
-                # Update weights and zero gradients at the end of accumulation
-                if (batch_idx + 1) % self.accumulation_steps == 0 or batch_idx == len(
-                    self.train_loader
-                ) - 1:
-                    # Clip gradients
+                # Single-step update
+                if self.use_amp:
+                    # Mixed precision forward for CUDA/MPS
+                    with torch.autocast(device_type=self.device.type):
+                        outputs = self.model(images, formulas)
+                        logits = outputs.transpose(1, 2)
+                        loss = self.criterion(logits, targets)
+                    # Backward and optimizer step
+                    if self.scaler is not None:
+                        # CUDA GradScaler path
+                        self.scaler.scale(loss).backward()
+                        if self.grad_clip_norm > 0:
+                            self.scaler.unscale_(self.optimizer)
+                            nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
+                        self.scaler.step(self.optimizer)
+                        self.scaler.update()
+                    else:
+                        # MPS/autocast without scaler
+                        loss.backward()
+                        if self.grad_clip_norm > 0:
+                            nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
+                        self.optimizer.step()
+                    self.optimizer.zero_grad(set_to_none=True)
+                else:
+                    # FP32 path
+                    outputs = self.model(images, formulas)
+                    logits = outputs.transpose(1, 2)
+                    loss = self.criterion(logits, targets)
+                    loss.backward()
                     if self.grad_clip_norm > 0:
                         nn.utils.clip_grad_norm_(
                             self.model.parameters(), self.grad_clip_norm
                         )
-
-                    # Update weights
                     self.optimizer.step()
                     self.optimizer.zero_grad(set_to_none=True)
+            else:
+                # Gradient accumulation
+                if self.use_amp:
+                    # Mixed precision forward
+                    with torch.autocast(device_type=self.device.type):
+                        outputs = self.model(images, formulas)
+                        logits = outputs.transpose(1, 2)
+                        loss = self.criterion(logits, targets) / self.accumulation_steps
+                    # Backward
+                    if self.scaler is not None:
+                        self.scaler.scale(loss).backward()
+                    else:
+                        loss.backward()
+                    # At accumulation step, update weights
+                    if (batch_idx + 1) % self.accumulation_steps == 0 or batch_idx == len(self.train_loader) - 1:
+                        if self.scaler is not None:
+                            # CUDA GradScaler path
+                            if self.grad_clip_norm > 0:
+                                self.scaler.unscale_(self.optimizer)
+                                nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
+                            self.scaler.step(self.optimizer)
+                            self.scaler.update()
+                        else:
+                            # MPS / FP32 path
+                            if self.grad_clip_norm > 0:
+                                nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
+                            self.optimizer.step()
+                        self.optimizer.zero_grad(set_to_none=True)
+                else:
+                    # Standard FP32 accumulation
+                    outputs = self.model(images, formulas)
+                    logits = outputs.transpose(1, 2)
+                    loss = self.criterion(logits, targets) / self.accumulation_steps
+                    loss.backward()
+                    # At accumulation step, update weights
+                    if (batch_idx + 1) % self.accumulation_steps == 0 or batch_idx == len(self.train_loader) - 1:
+                        if self.grad_clip_norm > 0:
+                            nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
+                        self.optimizer.step()
+                        self.optimizer.zero_grad(set_to_none=True)
 
             # Update epoch metrics
             # Undo the loss normalization for metric tracking
@@ -666,9 +701,11 @@ class Trainer:
                 val_metrics = self.validate()
                 # Step LR scheduler based on validation loss
                 try:
-                    self.scheduler.step(val_metrics.get("val_loss", float('inf')))
+                    self.scheduler.step(val_metrics.get("val_loss", float("inf")))
                 except Exception:
-                    logger.warning("LR scheduler step failed; skipping scheduler update.")
+                    logger.warning(
+                        "LR scheduler step failed; skipping scheduler update."
+                    )
 
                 # Explicit cache clearing after validation
                 if self.device.type == "mps":
