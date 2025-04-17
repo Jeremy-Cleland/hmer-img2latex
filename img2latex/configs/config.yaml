@@ -8,7 +8,7 @@ data:
   test_file: "im2latex_test_filter.lst"
   formulas_file: "im2latex_formulas.norm.lst"
   img_dir: "img"
-  batch_size: 64
+  batch_size: 16
   num_workers: 0
   max_seq_length: 141  # Maximum formula length (95th percentile)
 
@@ -34,10 +34,10 @@ model:
       model_name: "resnet50"  # Options: "resnet18", "resnet34", "resnet50", "resnet101", "resnet152"
       freeze_backbone: true
   # Embedding and decoder settings
-  embedding_dim: 256
+  embedding_dim: 512
   decoder:
-    hidden_dim: 256
-    lstm_layers: 1
+    hidden_dim: 512
+    lstm_layers: 4
     dropout: 0.1
     attention: false
 
@@ -46,10 +46,10 @@ training:
   optimizer: "adam"
   learning_rate: 0.001
   weight_decay: 0.0001
-  epochs: 100
+  epochs: 30
   early_stopping_patience: 10
   clip_grad_norm: 5.0
-  save_checkpoint_epochs: 10
+  save_checkpoint_epochs: 5
   experiment_name: "img2latex_v1"
   device: "mps"  # Options: "mps", "cuda", "cpu"
   accumulation_steps: 4  # Added gradient accumulation to reduce memory pressure 

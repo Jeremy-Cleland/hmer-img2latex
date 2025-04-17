@@ -2,10 +2,14 @@
 Command-line interface for the image-to-LaTeX model.
 """
 
+import json
 import os
+from pathlib import Path
 from typing import Dict, Optional
 
+import numpy
 import torch
+import torch.serialization
 import typer
 import yaml
 from rich.console import Console
@@ -303,8 +307,50 @@ def evaluate(
         # Set device
         device_obj = set_device(device)
 
+        # --- Infer experiment name from checkpoint path ---
+        try:
+            ckpt_path = Path(checkpoint_path)
+            # Assumes path like outputs/experiment_name/checkpoints/...
+            experiment_name = ckpt_path.parent.parent.name
+            console.print(f"Inferred experiment name: {experiment_name}")
+        except IndexError:
+            console.print(
+                "[yellow]Warning: Could not automatically determine experiment name from checkpoint path.[/yellow]"
+            )
+            experiment_name = None
+        # --------------------------------------------------
+
         # Load checkpoint
-        checkpoint = torch.load(checkpoint_path, map_location=device_obj)
+        # Explicitly set weights_only=False and allow numpy scalars using add_safe_globals
+        try:
+            # Allow the specific scalar type and dtype reported in the errors
+            torch.serialization.add_safe_globals(
+                [
+                    numpy._core.multiarray.scalar,  # Allow scalar types
+                    numpy.dtype,  # Allow generic dtype objects
+                    numpy.dtypes.Float64DType,  # Allow specific Float64DType object
+                ]
+            )
+            checkpoint = torch.load(
+                checkpoint_path, map_location=device_obj, weights_only=False
+            )
+        except AttributeError as e:
+            # Fallback if the specific numpy path doesn't exist
+            console.print(
+                f"[yellow]Warning: Could not find numpy type for add_safe_globals, trying without: {e}[/yellow]"
+            )
+            checkpoint = torch.load(
+                checkpoint_path, map_location=device_obj, weights_only=False
+            )
+        except ImportError as e:
+            # Fallback if numpy isn't available
+            console.print(
+                f"[yellow]Warning: NumPy import failed, trying torch.load without add_safe_globals: {e}[/yellow]"
+            )
+            checkpoint = torch.load(
+                checkpoint_path, map_location=device_obj, weights_only=False
+            )
+
         config = checkpoint.get("config", {})
 
         # Create predictor from checkpoint
@@ -340,6 +386,7 @@ def evaluate(
 
     all_predictions = []
     all_targets = []
+    all_results_for_saving = []  # List to store results for JSON export
 
     with Progress(
         SpinnerColumn(), TextColumn("[bold green]{task.description}"), console=console
@@ -367,6 +414,8 @@ def evaluate(
             for i, latex in enumerate(latex_predictions):
                 # Get the target formula
                 target_ids = targets[i].cpu().numpy().tolist()
+                # Get the raw target string
+                raw_target = raw_formulas[i]
 
                 # Filter out padding
                 target_ids = [
@@ -379,6 +428,10 @@ def evaluate(
                 # Add to lists
                 all_predictions.append(pred_ids)
                 all_targets.append(target_ids)
+                # Add prediction and raw target to results list for saving
+                all_results_for_saving.append(
+                    {"prediction": latex, "reference": raw_target}
+                )
 
             # Update progress
             progress.update(task, advance=1)
@@ -393,6 +446,23 @@ def evaluate(
     console.print(f"BLEU-4 Score: {metrics['bleu']:.4f}")
     console.print(f"Levenshtein Similarity: {metrics['levenshtein']:.4f}")
     console.print(f"Number of Samples: {metrics['batch_size']}")
+
+    # --- Save predictions if experiment name was found ---
+    if experiment_name:
+        try:
+            predictions_dir = (
+                path_manager.get_experiment_dir(experiment_name) / "predictions"
+            )
+            predictions_dir.mkdir(parents=True, exist_ok=True)
+            save_path = predictions_dir / "predictions.json"
+
+            with open(save_path, "w") as f:
+                json.dump(all_results_for_saving, f, indent=2)
+
+            console.print(f"[green]Predictions saved to: {save_path}[/green]")
+        except Exception as e:
+            console.print(f"[red]Error saving predictions: {e}[/red]")
+    # -----------------------------------------------------
 
 
 @app.command("visualize")

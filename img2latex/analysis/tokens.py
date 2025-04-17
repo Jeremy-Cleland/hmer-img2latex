@@ -29,6 +29,9 @@ from img2latex.analysis.utils import (
     save_json_file,
 )
 
+# Import PathManager
+from img2latex.utils.path_utils import path_manager
+
 # Create Typer app
 app = typer.Typer(help="Analyze token distributions in img2latex predictions")
 
@@ -369,13 +372,23 @@ def print_divergence_report(
     print(f"\nFull report saved to {output_dir / 'token_divergence_report.md'}")
 
 
-@app.command()
+@app.callback(invoke_without_command=True)
 def analyze(
+    ctx: typer.Context,
     config_path: str = typer.Option(
         "img2latex/configs/config.yaml", help="Path to the configuration file"
     ),
-    predictions_file: str = typer.Argument(
-        ..., help="Path to the predictions JSON file"
+    predictions_file: Optional[str] = typer.Option(
+        None,
+        "--predictions-file",
+        "-p",
+        help="Path to the specific predictions JSON/CSV file (use this or --experiment)",
+    ),
+    experiment: Optional[str] = typer.Option(
+        None,
+        "--experiment",
+        "-e",
+        help="Name of the experiment to analyze predictions from (use this or --predictions-file)",
     ),
     output_dir: str = typer.Option(
         "outputs/token_analysis", help="Directory to save the token analysis results"
@@ -388,87 +401,146 @@ def analyze(
         True, help="Apply max sequence length from config to tokenization"
     ),
 ) -> None:
-    """Analyze token distributions in model predictions vs references."""
-    # Load configuration
-    cfg = load_config(config_path)
-
-    # Get max sequence length from config
-    max_seq_length = cfg["data"].get("max_seq_length") if apply_max_length else None
-
-    # Ensure output directory exists
-    output_path = ensure_output_dir(output_dir, "tokens")
-
-    console.print(
-        f"[bold green]Loading predictions from {predictions_file}[/bold green]"
-    )
-
-    # Load predictions and references
-    try:
-        references, predictions = load_predictions_data(predictions_file)
-    except Exception as e:
-        console.print(f"[bold red]Error loading predictions file: {e}[/bold red]")
+    """Analyze token distributions in predictions versus references."""
+    # Prevent running if a subcommand was invoked (though none are defined)
+    if ctx.invoked_subcommand is not None:
         return
 
-    console.print(f"[green]Loaded {len(predictions)} prediction samples[/green]")
+    # Validate arguments
+    if not predictions_file and not experiment:
+        console.print(
+            "[red]Error: Please provide either --predictions-file or --experiment.[/red]"
+        )
+        raise typer.Exit(code=1)
+    if predictions_file and experiment:
+        console.print(
+            "[red]Error: Please provide either --predictions-file or --experiment, not both.[/red]"
+        )
+        raise typer.Exit(code=1)
 
-    if max_seq_length:
-        console.print(f"[blue]Using max sequence length: {max_seq_length}[/blue]")
+    # Determine the effective predictions file path
+    effective_predictions_file: Path
+    if experiment:
+        try:
+            # Assume predictions are stored in <experiment_dir>/predictions/predictions.json
+            experiment_dir = path_manager.get_experiment_dir(experiment)
+            predictions_subdir = experiment_dir / "predictions"
+            # Look for .json or .csv
+            potential_files = list(predictions_subdir.glob("predictions.*"))
+            json_file = predictions_subdir / "predictions.json"
+            csv_file = predictions_subdir / "predictions.csv"
 
-    # Tokenize sequences
-    reference_tokens = tokenize_sequences(references, token_delimiter, max_seq_length)
-    prediction_tokens = tokenize_sequences(predictions, token_delimiter, max_seq_length)
+            if json_file.exists():
+                effective_predictions_file = json_file
+            elif csv_file.exists():
+                effective_predictions_file = csv_file
+            else:
+                console.print(
+                    f"[red]Error: Could not find 'predictions.json' or 'predictions.csv' in {predictions_subdir}[/red]"
+                )
+                raise typer.Exit(code=1)
 
-    # Compute token frequencies
-    reference_freqs = compute_token_frequencies(reference_tokens)
-    prediction_freqs = compute_token_frequencies(prediction_tokens)
+            console.print(
+                f"Using predictions file for experiment '{experiment}': {effective_predictions_file}"
+            )
+        except Exception as e:
+            console.print(
+                f"[red]Error finding predictions file for experiment '{experiment}': {e}[/red]"
+            )
+            raise typer.Exit(code=1)
+    else:
+        # Use the provided predictions_file path
+        effective_predictions_file = Path(predictions_file)
+        if not effective_predictions_file.exists():
+            console.print(
+                f"[red]Error: Predictions file not found: {effective_predictions_file}[/red]"
+            )
+            raise typer.Exit(code=1)
+        console.print(f"Using provided predictions file: {effective_predictions_file}")
 
-    # Calculate KL divergence
-    kl_div, token_divergences = calculate_kl_divergence(
-        reference_freqs, prediction_freqs
+    # Load configuration (optional, might be needed for max_length)
+    cfg = {}
+    try:
+        cfg = load_config(config_path)
+    except FileNotFoundError:
+        console.print(
+            f"[yellow]Warning: Config file {config_path} not found. Max length will not be applied from config.[/yellow]"
+        )
+
+    # Ensure output directory exists
+    output_path = ensure_output_dir(
+        output_dir, f"token_analysis_{experiment or 'custom'}"
     )
 
-    console.print(f"\n[bold]Overall KL divergence: {kl_div:.4f}[/bold]")
+    console.print(f"Loading predictions from {effective_predictions_file}...")
+    try:
+        # Load prediction data using the effective path
+        predictions, ground_truths = load_predictions_data(effective_predictions_file)
 
-    # Find most divergent tokens
-    divergent_tokens = find_divergent_tokens(
-        reference_freqs, prediction_freqs, token_divergences, top_k
-    )
+        # Tokenization
+        max_len = None
+        if apply_max_length and cfg:
+            max_len = cfg.get("data", {}).get("max_seq_length")
+            if max_len:
+                console.print(f"Applying max sequence length from config: {max_len}")
 
-    # Print divergence report
-    print_divergence_report(divergent_tokens, reference_freqs, prediction_freqs)
+        console.print("Tokenizing sequences...")
+        pred_tokens = tokenize_sequences(predictions, token_delimiter, max_len)
+        truth_tokens = tokenize_sequences(ground_truths, token_delimiter, max_len)
 
-    # Visualize token distributions
-    visualize_file = output_path / "token_distributions.png"
-    plot_token_distributions(
-        divergent_tokens, reference_freqs, prediction_freqs, visualize_file
-    )
+        # Compute token frequencies
+        reference_freqs = compute_token_frequencies(truth_tokens)
+        prediction_freqs = compute_token_frequencies(pred_tokens)
 
-    # Save detailed results to JSON
-    results = {
-        "overall_kl_divergence": kl_div,
-        "divergent_tokens": [
-            {
-                "token": token,
-                "reference_freq": reference_freqs[token],
-                "prediction_freq": prediction_freqs.get(token, 0),
-                "divergence": divergence,
-            }
-            for token, divergence in divergent_tokens
-        ],
-        "token_stats": {
-            "unique_reference_tokens": len(reference_freqs),
-            "unique_prediction_tokens": len(prediction_freqs),
-            "reference_token_count": sum(reference_freqs.values()),
-            "prediction_token_count": sum(prediction_freqs.values()),
-        },
-    }
+        # Calculate KL divergence
+        kl_div, token_divergences = calculate_kl_divergence(
+            reference_freqs, prediction_freqs
+        )
 
-    results_file = output_path / "token_analysis.json"
-    save_json_file(results, results_file)
+        console.print(f"\n[bold]Overall KL divergence: {kl_div:.4f}[/bold]")
 
-    console.print(
-        f"[bold green]Token analysis complete. Results saved to {output_path}[/bold green]"
-    )
+        # Find most divergent tokens
+        divergent_tokens = find_divergent_tokens(
+            reference_freqs, prediction_freqs, token_divergences, top_k
+        )
+
+        # Print divergence report
+        print_divergence_report(divergent_tokens, reference_freqs, prediction_freqs)
+
+        # Visualize token distributions
+        visualize_file = output_path / "token_distributions.png"
+        plot_token_distributions(
+            divergent_tokens, reference_freqs, prediction_freqs, visualize_file
+        )
+
+        # Save detailed results to JSON
+        results = {
+            "overall_kl_divergence": kl_div,
+            "divergent_tokens": [
+                {
+                    "token": token,
+                    "reference_freq": reference_freqs[token],
+                    "prediction_freq": prediction_freqs.get(token, 0),
+                    "divergence": divergence,
+                }
+                for token, divergence in divergent_tokens
+            ],
+            "token_stats": {
+                "unique_reference_tokens": len(reference_freqs),
+                "unique_prediction_tokens": len(prediction_freqs),
+                "reference_token_count": sum(reference_freqs.values()),
+                "prediction_token_count": sum(prediction_freqs.values()),
+            },
+        }
+
+        results_file = output_path / "token_analysis.json"
+        save_json_file(results, results_file)
+
+        console.print(
+            f"[bold green]Token analysis complete. Results saved to {output_path}[/bold green]"
+        )
+    except Exception as e:
+        console.print(f"[bold red]Error processing predictions: {e}[/bold red]")
 
 
 if __name__ == "__main__":

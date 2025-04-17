@@ -7,6 +7,7 @@ CONFIG := img2latex/configs/config.yaml
 MODEL := outputs/img2latex_v1/checkpoints/best_checkpoint.pt
 IMAGE := data/img
 EXPERIMENT := img2latex
+DEVICE ?= mps # Default device, can be overridden (e.g., DEVICE=cuda)
 DATA_DIR := data
 CHECKPOINTS_DIR := outputs/checkpoints
 OUTPUTS_DIR := outputs
@@ -86,8 +87,8 @@ predict:
 
 # Evaluation on test set
 evaluate:
-	@echo "Evaluating model $(MODEL) on test set"
-	$(PYTHON) -m img2latex.cli evaluate $(MODEL) $(DATA_DIR) --split test
+	@echo "Evaluating model $(MODEL) on test set $(if $(SPLIT),using split $(SPLIT),) $(if $(NUM_SAMPLES),limiting to $(NUM_SAMPLES) samples,) using device $(DEVICE)..."
+	$(PYTHON) -m img2latex.cli evaluate $(MODEL) $(DATA_DIR) $(if $(SPLIT),--split $(SPLIT),--split test) $(if $(NUM_SAMPLES),--num-samples $(NUM_SAMPLES),) --device $(DEVICE)
 
 # New metrics targets
 metrics-visualize:
@@ -144,37 +145,49 @@ help:
 	@echo "  format            - Format code according to style guide"
 	@echo "  typecheck         - Run type checking"
 	@echo "  check-all         - Run all code quality checks"
+	@echo "  analyze-all       - Run all analysis steps for an experiment"
 	@echo "  help              - Show this help message"
 	
 # Analysis targets
 analyze-images:
 	@echo "Running analysis: images"
-	$(PYTHON) -m img2latex.cli analyze images
+	$(PYTHON) -m img2latex.cli analyze images --experiment $(EXPERIMENT)
 
 analyze-project:
 	@echo "Running analysis: project"
-	$(PYTHON) -m img2latex.cli analyze project
+	$(PYTHON) -m img2latex.cli analyze project --experiment $(EXPERIMENT)
 
 analyze-curves:
 	@echo "Running analysis: curves"
-	$(PYTHON) -m img2latex.cli analyze curves
+	$(PYTHON) -m img2latex.cli analyze curves --experiment $(EXPERIMENT)
 
 analyze-tokens:
 	@echo "Running analysis: tokens"
-	$(PYTHON) -m img2latex.cli analyze tokens
+	$(PYTHON) -m img2latex.cli analyze tokens --experiment $(EXPERIMENT)
 
 analyze-errors:
 	@echo "Running analysis: errors"
-	$(PYTHON) -m img2latex.cli analyze errors
+	$(PYTHON) -m img2latex.cli analyze errors --experiment $(EXPERIMENT)
 
 analyze-preprocess:
 	@echo "Running analysis: preprocess"
-	$(PYTHON) -m img2latex.cli analyze preprocess
+	$(PYTHON) -m img2latex.cli analyze preprocess --experiment $(EXPERIMENT)
 
-analyze-all: analyze-images analyze-project analyze-curves analyze-tokens analyze-errors analyze-preprocess metrics-visualize
-	@echo "Running all analysis commands"
+# New all-in-one analysis target that uses the centralized orchestrator
+analyze-all:
+	@echo "Running full analysis suite for experiment: $(EXPERIMENT)"
+	$(PYTHON) -m img2latex.cli analyze all --experiment $(EXPERIMENT)
+
+# Plot learning curves from a specific metrics file
+plot-curves-from-file:
+	@echo "Plotting learning curves from file: $(METRICS_FILE)"
+	@if [ -z "$(METRICS_FILE)" ]; then \
+		echo "Error: METRICS_FILE variable is not set. Usage: make plot-curves-from-file METRICS_FILE=<path_to_metrics>"; \
+		exit 1; \
+	fi
+	$(PYTHON) img2latex/analysis/curves.py $(METRICS_FILE) --output-dir $(OUTPUTS_DIR)/learning_curves
 
 .PHONY: clean-pyc clean-outputs clean-metrics clean-all setup dirs download-data train train-resume predict evaluate \
         metrics-visualize metrics-latest metrics-compare metrics-export \
         lint lint-fix format typecheck check-all help analyze-images analyze-project \
-        analyze-curves analyze-tokens analyze-errors analyze-preprocess analyze-all
+        analyze-curves analyze-tokens analyze-errors analyze-preprocess analyze-all plot-curves-from-file

@@ -77,6 +77,10 @@ def visualize_metrics(
     show_samples: bool = typer.Option(True, help="Show prediction samples"),
     show_token_dist: bool = typer.Option(True, help="Show token distribution"),
     plot_history: bool = typer.Option(True, help="Plot metrics history"),
+    metrics_file: Optional[str] = typer.Option(
+        None,
+        help="Path to specific metrics file (deprecated, use experiment name instead)",
+    ),
 ):
     """
     Visualize metrics for a specific experiment.
@@ -139,6 +143,10 @@ def visualize_metrics(
 @app.command("latest")
 def show_latest_metrics(
     experiment: str = typer.Option(..., help="Name of the experiment"),
+    metrics_file: Optional[str] = typer.Option(
+        None,
+        help="Path to specific metrics file (deprecated, use experiment name instead)",
+    ),
 ):
     """
     Show latest metrics for an experiment.
@@ -200,65 +208,54 @@ def compare_experiments(
     """
     Compare metrics across multiple experiments.
     """
-    # If no experiments provided, list all experiments
     if not experiments:
-        experiments = experiment_registry.list_experiments()
+        # If no experiments provided, list all from registry
+        try:
+            experiments = experiment_registry.list_experiments()
+        except Exception as e:
+            console.print(f"[red]Error loading experiment registry: {e}[/red]")
+            raise typer.Exit(code=1)
 
-    if not experiments:
-        console.print("[red]No experiments found to compare[/red]")
-        raise typer.Exit(code=1)
+        if not experiments:
+            console.print("[red]No experiments found in registry.[/red]")
+            raise typer.Exit(code=1)
 
-    # Collect metrics for each experiment
-    comparison_data = []
-
+    # Load metrics for each experiment
+    experiments_data = []
     for exp_name in experiments:
         metrics_list = load_experiment_metrics(exp_name)
-        if not metrics_list:
-            console.print(
-                f"[yellow]No metrics found for experiment: {exp_name}[/yellow]"
+        if metrics_list:
+            latest_metrics = max(metrics_list, key=lambda m: m.get("epoch", 0))
+            epoch = latest_metrics.get("epoch", 0)
+            metric_value = latest_metrics.get(metric, 0)
+            experiments_data.append(
+                {
+                    "experiment": exp_name,
+                    "epoch": epoch,
+                    "value": metric_value,
+                }
             )
-            continue
 
-        # Get best epoch based on the selected metric
-        best_metrics = max(metrics_list, key=lambda m: m.get(metric, 0))
-        best_epoch = best_metrics.get("epoch", 0)
-        metric_value = best_metrics.get(metric, 0)
-
-        comparison_data.append(
-            {
-                "Experiment": exp_name,
-                "Best Epoch": best_epoch,
-                f"Best {metric.capitalize()}": metric_value,
-                "BLEU": best_metrics.get("bleu", 0),
-                "Levenshtein": best_metrics.get("levenshtein", 0),
-                "Accuracy": best_metrics.get("accuracy", 0),
-            }
-        )
-
-    if not comparison_data:
-        console.print("[red]No data available for comparison[/red]")
+    if not experiments_data:
+        console.print("[red]No metrics data found for any experiment.[/red]")
         raise typer.Exit(code=1)
 
-    # Sort by the selected metric
-    comparison_data.sort(key=lambda x: x[f"Best {metric.capitalize()}"], reverse=True)
+    # Sort by metric value, descending
+    experiments_data.sort(key=lambda x: x["value"], reverse=True)
 
     # Print comparison table
-    table = Table(title=f"Experiment Comparison (by {metric.capitalize()})")
+    table = Table(title=f"Experiment Comparison - {metric.upper()}")
+    table.add_column("Rank", style="dim")
     table.add_column("Experiment", style="cyan")
-    table.add_column("Best Epoch", style="blue")
-    table.add_column(f"Best {metric.capitalize()}", style="green")
-    table.add_column("BLEU", style="green")
-    table.add_column("Levenshtein", style="green")
-    table.add_column("Accuracy", style="green")
+    table.add_column("Epoch", style="blue")
+    table.add_column(metric.upper(), style="green")
 
-    for data in comparison_data:
+    for i, exp_data in enumerate(experiments_data, 1):
         table.add_row(
-            data["Experiment"],
-            str(data["Best Epoch"]),
-            f"{data[f'Best {metric.capitalize()}']:.4f}",
-            f"{data['BLEU']:.4f}",
-            f"{data['Levenshtein']:.4f}",
-            f"{data['Accuracy']:.4f}",
+            str(i),
+            exp_data["experiment"],
+            str(exp_data["epoch"]),
+            f"{exp_data['value']:.4f}",
         )
 
     console.print(table)
@@ -273,7 +270,7 @@ def export_metrics(
     ),
 ):
     """
-    Export metrics to a file.
+    Export metrics for an experiment to CSV or JSON.
     """
     # Load metrics files
     metrics_list = load_experiment_metrics(experiment)
@@ -282,47 +279,32 @@ def export_metrics(
         console.print(f"[red]No metrics found for experiment: {experiment}[/red]")
         raise typer.Exit(code=1)
 
-    # Create output path if not provided
-    if not output:
-        metrics_dir = path_manager.get_metrics_dir(experiment)
-        if format.lower() == "csv":
-            output = metrics_dir / f"{experiment}_metrics.csv"
-        else:
-            output = metrics_dir / f"{experiment}_metrics_export.json"
-
-    # Extract basic metrics for each epoch
-    export_data = []
-    for metrics in metrics_list:
-        epoch_data = {
-            "epoch": metrics.get("epoch", 0),
-            "bleu": metrics.get("bleu", 0),
-            "levenshtein": metrics.get("levenshtein", 0),
-            "accuracy": metrics.get("accuracy", 0),
-            "batch_size": metrics.get("batch_size", 0),
-            "num_tokens": metrics.get("num_tokens", 0),
+    # Create DataFrame from metrics
+    data = []
+    for m in metrics_list:
+        row = {
+            "epoch": m.get("epoch", 0),
+            "bleu": m.get("bleu", 0),
+            "levenshtein": m.get("levenshtein", 0),
+            "accuracy": m.get("accuracy", 0),
         }
+        data.append(row)
 
-        # Add token distribution metrics if available
-        if "token_distribution" in metrics:
-            token_dist = metrics["token_distribution"]
-            if "predictions" in token_dist:
-                pred_info = token_dist["predictions"]
-                epoch_data["token_diversity"] = pred_info.get("diversity", 0)
-                epoch_data["token_entropy"] = pred_info.get("entropy", 0)
-                epoch_data["repetition_factor"] = pred_info.get("repetition_factor", 0)
+    df = pd.DataFrame(data)
 
-        export_data.append(epoch_data)
+    # Determine output path
+    if output is None:
+        metrics_dir = path_manager.get_metrics_dir(experiment)
+        output = metrics_dir / f"{experiment}_metrics.{format}"
 
-    # Sort by epoch
-    export_data.sort(key=lambda x: x["epoch"])
-
-    # Export to file
+    # Export data
     if format.lower() == "csv":
-        df = pd.DataFrame(export_data)
         df.to_csv(output, index=False)
+    elif format.lower() == "json":
+        df.to_json(output, orient="records", indent=2)
     else:
-        with open(output, "w") as f:
-            json.dump(export_data, f, indent=2)
+        console.print(f"[red]Unsupported format: {format}[/red]")
+        raise typer.Exit(code=1)
 
     console.print(f"[green]Metrics exported to: {output}[/green]")
 

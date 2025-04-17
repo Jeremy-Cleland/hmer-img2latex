@@ -198,10 +198,17 @@ class LSTMDecoder(nn.Module):
         embedded = self.embedding(input_token)  # (batch_size, 1, embedding_dim)
 
         if not self.use_attention:
-            # Concatenate token embedding with encoder output
-            encoder_output_repeated = encoder_output.unsqueeze(
-                1
-            )  # (batch_size, 1, embedding_dim)
+            # No Attention
+            encoder_output_repeated = encoder_output.unsqueeze(1)
+
+            # --- Sanity Check Dimensions Before Concatenation ---
+            if embedded.ndim != 3 or encoder_output_repeated.ndim != 3:
+                raise RuntimeError(
+                    f"Shape mismatch before cat! embedded: {embedded.shape}, "
+                    f"encoder_output_repeated: {encoder_output_repeated.shape}"
+                )
+            # ----------------------------------------------------
+
             lstm_input = torch.cat([embedded, encoder_output_repeated], dim=2)
 
             # Initialize hidden state if not provided

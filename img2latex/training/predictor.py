@@ -236,111 +236,115 @@ class Predictor:
 
             # For greedy search (non-beam search), we can process the whole batch at once
             if beam_size == 0:
-                # Generate sequences for the batch efficiently with greedy search
+                # --- Start of Restored Batched Greedy Search Logic ---
                 with torch.no_grad():
-                    # Process the entire batch at once
-                    encoder_outputs = self.model.encoder(batch_tensor)
+                    # Encode the entire batch
+                    if batch_tensor.ndim == 5 and batch_tensor.shape[1] == 1:
+                        squeezed_batch_tensor = batch_tensor.squeeze(1)
+                    else:
+                        squeezed_batch_tensor = batch_tensor
+                    encoder_outputs = self.model.encoder(
+                        squeezed_batch_tensor
+                    )  # [B, EmbDim] or [B, SeqLen, EmbDim]
 
                     # Initialize batch sequences with start tokens
-                    batch_size = batch_tensor.size(0)
-                    device = batch_tensor.device
-                    sequences = [[start_token_id] for _ in range(batch_size)]
+                    current_batch_size = squeezed_batch_tensor.size(0)
+                    device = squeezed_batch_tensor.device
+                    # Keep track of sequences for each item in the batch
+                    sequences = torch.full(
+                        (current_batch_size, 1),
+                        start_token_id,
+                        dtype=torch.long,
+                        device=device,
+                    )  # [B, 1]
+                    # Flag for sequences that have finished (found <END>)
+                    finished = torch.zeros(
+                        current_batch_size, dtype=torch.bool, device=device
+                    )
 
-                    # Initialize hidden states
+                    # Initialize hidden state for the whole batch
                     hidden = None
 
-                    # Generate tokens one by one for all sequences in the batch
+                    # Generate tokens step-by-step for the batch
                     for _ in range(max_length):
-                        # Create a tensor with current tokens from all sequences
-                        current_tokens = [seq[-1] for seq in sequences]
-                        input_tokens = torch.tensor(
-                            [[token] for token in current_tokens], device=device
+                        # Get the last token for each sequence in the batch
+                        input_tokens = sequences[:, -1].unsqueeze(1)  # [B, 1]
+
+                        # Decode one step for the whole batch
+                        # Pass appropriate part of encoder_outputs (might depend on attention)
+                        output, hidden = self.model.decoder.decode_step(
+                            encoder_outputs, input_tokens, hidden
                         )
+                        logits = output.squeeze(1)  # [B, VocabSize]
 
-                        # Reshape encoder outputs for the step
-                        step_encoder_outputs = encoder_outputs
+                        # Apply temperature, top-k, top-p sampling
+                        if temperature != 1.0:
+                            logits = logits / temperature
+                        probs = torch.softmax(logits, dim=-1)
 
-                        # Decode next tokens
-                        with torch.no_grad():
-                            # Get next token probabilities
-                            outputs = []
-                            for j, token in enumerate(input_tokens):
-                                # Get a slice of encoder output for this sequence
-                                encoder_output = step_encoder_outputs[j : j + 1]
+                        if top_k > 0:
+                            top_k = min(top_k, probs.size(-1))
+                            kth_prob, _ = torch.topk(probs, top_k, dim=-1)
+                            kth_prob = kth_prob[
+                                :, -1, None
+                            ]  # Use [:, -1, None] for batch
+                            indices_to_remove = probs < kth_prob
+                            probs[indices_to_remove] = 0.0
+                            probs_sum = probs.sum(dim=-1, keepdim=True)
+                            if torch.any(probs_sum > 0):
+                                probs = probs / probs_sum
 
-                                output, new_hidden = self.model.decoder.decode_step(
-                                    encoder_output=encoder_output,
-                                    input_token=token,
-                                    hidden=hidden,
-                                )
-                                outputs.append(output)
+                        if top_p > 0.0:
+                            sorted_probs, sorted_indices = torch.sort(
+                                probs, descending=True
+                            )
+                            cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+                            sorted_indices_to_remove = cumulative_probs > top_p
+                            sorted_indices_to_remove[:, 1:] = sorted_indices_to_remove[
+                                :, :-1
+                            ].clone()
+                            sorted_indices_to_remove[:, 0] = 0
+                            indices_to_remove = sorted_indices_to_remove.scatter(
+                                -1, sorted_indices, sorted_indices_to_remove
+                            )
+                            probs[indices_to_remove] = 0.0
+                            probs_sum = probs.sum(dim=-1, keepdim=True)
+                            if torch.any(probs_sum > 0):
+                                probs = probs / probs_sum
 
-                            # Get the predicted tokens
-                            if temperature > 0 and (top_k > 0 or top_p > 0):
-                                # Apply temperature and top-k/top-p sampling
-                                next_tokens = []
-                                for output in outputs:
-                                    logits = output.squeeze(1) / temperature
-                                    probs = torch.softmax(logits, dim=-1)
+                        # Sample or take argmax
+                        if temperature > 0 and (top_k > 0 or top_p > 0.0):
+                            next_tokens = torch.multinomial(probs, 1)  # [B, 1]
+                        else:
+                            next_tokens = torch.argmax(
+                                probs, dim=-1, keepdim=True
+                            )  # [B, 1]
 
-                                    # Apply top-k sampling
-                                    if top_k > 0:
-                                        top_k_probs, top_k_indices = torch.topk(
-                                            probs, top_k
-                                        )
-                                        probs_dist = torch.zeros_like(probs)
-                                        probs_dist.scatter_(
-                                            -1, top_k_indices, top_k_probs
-                                        )
-                                        probs = probs_dist / probs_dist.sum()
+                        # Update sequences only for those not finished
+                        sequences = torch.cat(
+                            [sequences, next_tokens], dim=1
+                        )  # [B, SeqLen+1]
 
-                                    # Apply top-p sampling
-                                    if top_p > 0:
-                                        sorted_probs, sorted_indices = torch.sort(
-                                            probs, descending=True
-                                        )
-                                        cumulative_probs = torch.cumsum(
-                                            sorted_probs, dim=-1
-                                        )
+                        # Update finished flags
+                        finished = finished | (next_tokens.squeeze(1) == end_token_id)
 
-                                        # Remove tokens with cumulative probability above threshold
-                                        sorted_indices_to_remove = (
-                                            cumulative_probs > top_p
-                                        )
-
-                                        # Shift indices to the right to keep first token above threshold
-                                        sorted_indices_to_remove[..., 1:] = (
-                                            sorted_indices_to_remove[..., :-1].clone()
-                                        )
-                                        sorted_indices_to_remove[..., 0] = 0
-
-                                        indices_to_remove = (
-                                            sorted_indices_to_remove.scatter(
-                                                -1,
-                                                sorted_indices,
-                                                sorted_indices_to_remove,
-                                            )
-                                        )
-                                        probs[indices_to_remove] = 0
-                                        probs = probs / probs.sum()
-
-                                    # Sample from the distribution
-                                    next_token = torch.multinomial(probs, 1).item()
-                                    next_tokens.append(next_token)
-                            else:
-                                # Greedy search - take argmax
-                                next_tokens = [
-                                    torch.argmax(output.squeeze(1), dim=-1).item()
-                                    for output in outputs
-                                ]
-
-                        # Add tokens to sequences
-                        for j, token in enumerate(next_tokens):
-                            sequences[j].append(token)
-
-                        # Check if all sequences have reached end token
-                        if all(seq[-1] == end_token_id for seq in sequences):
+                        # Break if all sequences are finished
+                        if torch.all(finished):
                             break
+
+                # Convert final tensor sequences to lists of lists
+                final_sequences = []
+                for seq_tensor in sequences:
+                    seq_list = seq_tensor.cpu().tolist()
+                    # Trim sequence after first <END> token
+                    try:
+                        end_idx = seq_list.index(end_token_id)
+                        final_sequences.append(seq_list[:end_idx])  # Exclude <END>
+                    except ValueError:
+                        final_sequences.append(seq_list)  # No <END> found
+                # Assign to the variable name expected by the later code
+                sequences = final_sequences
+                # --- End of Restored Batched Greedy Search Logic ---
             else:
                 # For beam search, process each image individually
                 with torch.no_grad():
