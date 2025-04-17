@@ -24,7 +24,7 @@ from img2latex.utils.visualize_metrics import (
 
 app = typer.Typer(help="Analyze metrics")
 console = Console()
-logger = get_logger(__name__)
+logger = get_logger(__name__, log_level="INFO")
 
 
 def load_experiment_metrics(experiment_name: str) -> List[Dict]:

@@ -10,7 +10,7 @@ import torch
 
 from img2latex.utils.logging import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, log_level="INFO")
 
 
 class LaTeXTokenizer:
@@ -22,7 +22,7 @@ class LaTeXTokenizer:
     """
 
     def __init__(
-        self, special_tokens: Dict[str, str] = None, max_sequence_length: int = 150
+        self, special_tokens: Dict[str, str] = None, max_sequence_length: int = None
     ):
         """
         Initialize the tokenizer.
@@ -41,6 +41,10 @@ class LaTeXTokenizer:
             }
         else:
             self.special_tokens = special_tokens
+
+        # Set default max_sequence_length if not provided
+        if max_sequence_length is None:
+            max_sequence_length = 150  # Fallback only if config value not passed
 
         # Initialize vocabulary-related attributes
         self.token_to_id: Dict[str, int] = {}

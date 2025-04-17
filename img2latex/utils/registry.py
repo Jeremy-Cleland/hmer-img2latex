@@ -18,7 +18,7 @@ import pandas as pd
 from img2latex.utils.logging import get_logger
 from img2latex.utils.path_utils import path_manager
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, log_level="INFO")
 
 
 class ExperimentRegistry:

@@ -59,13 +59,6 @@ def load_predictions(file_path: Union[str, Path]) -> List[Dict[str, Union[str, f
     if file_extension == ".csv":
         data = load_csv_file(file_path)
 
-        # Check for required columns
-        required_columns = ["reference", "hypothesis"]
-        score_columns = ["edit_distance", "bleu", "levenshtein"]
-
-        # Check if at least one score column exists
-        has_scores = any(col in data[0] for col in score_columns)
-
         # For each record, create a standardized entry
         for i, row in enumerate(data):
             record = {"id": i}
@@ -95,7 +88,7 @@ def load_predictions(file_path: Union[str, Path]) -> List[Dict[str, Union[str, f
             record["hypothesis"] = hypothesis
 
             # Extract scores
-            for score_col in score_columns:
+            for score_col in ["edit_distance", "bleu", "levenshtein"]:
                 if score_col in row:
                     try:
                         record[score_col] = float(row[score_col])
@@ -214,7 +207,7 @@ def load_predictions(file_path: Union[str, Path]) -> List[Dict[str, Union[str, f
 
 def bucket_by_edit_distance(
     records: List[Dict[str, Union[str, float]]],
-    ranges: List[Tuple[int, int]] = [(0, 0), (1, 1), (2, 3), (4, float("inf"))],
+    ranges: List[Tuple[int, int]] = None,
 ) -> Dict[str, List[Dict[str, Union[str, float]]]]:
     """Group records into buckets based on edit distance ranges.
 
@@ -225,6 +218,10 @@ def bucket_by_edit_distance(
     Returns:
         Dictionary mapping range names to lists of records
     """
+    if ranges is None:
+        # Default ranges if not provided
+        ranges = [(0, 0), (1, 1), (2, 3), (4, float("inf"))]
+
     buckets = {
         f"{low}-{high if high != float('inf') else 'inf'}": [] for low, high in ranges
     }
@@ -416,10 +413,10 @@ def analyze(
         "outputs/error_analysis", help="Directory to save the error analysis results"
     ),
     min_edit_distance: int = typer.Option(
-        1, help="Minimum edit distance to consider as an error"
+        None, help="Minimum edit distance to consider as an error"
     ),
     max_samples: int = typer.Option(
-        50, help="Maximum number of samples to include in each error category"
+        None, help="Maximum number of samples to include in each error category"
     ),
     truncate_sequences: bool = typer.Option(
         False, help="Truncate sequences to max_seq_length from config"
@@ -429,6 +426,23 @@ def analyze(
     # Load configuration
     cfg = load_config(config_path)
     max_seq_length = cfg["data"].get("max_seq_length") if truncate_sequences else None
+
+    # Get analysis config values with defaults
+    min_edit_distance = min_edit_distance or cfg["analysis"].get("min_edit_distance", 1)
+    max_samples = max_samples or cfg["analysis"].get("max_error_samples", 50)
+    samples_per_bucket = cfg["analysis"].get("samples_per_bucket", 5)
+    max_bucket_examples = cfg["analysis"].get("max_bucket_examples", 100)
+    top_error_patterns = cfg["analysis"].get("top_error_patterns", 5)
+
+    # Parse error distance ranges from config
+    config_ranges = cfg["analysis"].get(
+        "error_distance_ranges", [[0, 0], [1, 1], [2, 3], [4, "inf"]]
+    )
+    distance_ranges = []
+    for range_pair in config_ranges:
+        low, high = range_pair
+        high = float("inf") if high == "inf" else float(high)
+        distance_ranges.append((float(low), high))
 
     # Ensure output directory exists
     output_path = ensure_output_dir(output_dir, "errors")
@@ -465,7 +479,6 @@ def analyze(
 
     # Group records by edit distance
     console.print("[green]Grouping records by edit distance...[/green]")
-    distance_ranges = [(0, 0), (1, 1), (2, 3), (4, float("inf"))]
     buckets = bucket_by_edit_distance(predictions, distance_ranges)
 
     # Print bucket statistics
@@ -480,7 +493,7 @@ def analyze(
     # Generate error report
     console.print("\n[green]Generating error report...[/green]")
     report_path = output_path / "error_analysis_report.md"
-    report = generate_error_report(buckets, error_patterns, max_samples, report_path)
+    generate_error_report(buckets, error_patterns, samples_per_bucket, report_path)
 
     # Save bucketed examples to JSON for further analysis
     bucketed_data = {}
@@ -496,8 +509,8 @@ def analyze(
                 "bleu": record.get("bleu", 0),
             }
             for i, record in enumerate(
-                bucket_records[:100]
-            )  # Limit to 100 examples per bucket
+                bucket_records[:max_bucket_examples]
+            )  # Limit examples per bucket
         ]
 
     # Save report to JSON
@@ -509,7 +522,7 @@ def analyze(
     # Print top error patterns
     if error_patterns:
         console.print("\n[bold]Top error patterns:[/bold]")
-        for pattern in error_patterns[:5]:  # Show top 5
+        for pattern in error_patterns[:top_error_patterns]:  # Show top patterns
             console.print(
                 f"  {pattern['pattern']}: {pattern['count']} occurrences - {pattern['description']}"
             )

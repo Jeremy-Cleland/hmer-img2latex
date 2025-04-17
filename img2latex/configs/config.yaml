@@ -11,6 +11,14 @@ data:
   batch_size: 128
   num_workers: 0
   max_seq_length: 141  # Maximum formula length (95th percentile)
+  # Additional data loading parameters
+  prefetch_factor: 2
+  log_frequency: 1000
+  eval_batch_size_multiplier: 2
+  max_eval_batch_size: 256
+  load_in_memory: false
+  persistent_workers: true
+  pin_memory: true
 
 # Model settings
 model:
@@ -28,7 +36,7 @@ model:
       padding: "same"
     # ResNet encoder settings (used when model.name = "resnet_lstm")
     resnet:
-      img_height: 64
+      img_height: 128
       img_width: 800
       channels: 3
       model_name: "resnet50"  # Options: "resnet18", "resnet34", "resnet50", "resnet101", "resnet152"
@@ -74,3 +82,30 @@ logging:
   log_to_file: true
   log_file: "train.log"
   use_colors: true
+
+# Analysis settings
+analysis:
+  # Error analysis settings
+  error_distance_ranges: [[0, 0], [1, 1], [2, 3], [4, "inf"]]
+  samples_per_bucket: 5
+  min_edit_distance: 1
+  max_error_samples: 50
+  max_bucket_examples: 100
+  top_error_patterns: 5
+  
+  # Image analysis settings
+  image_stats_samples: 1000
+  
+  # Learning curve settings
+  curve_smoothing: 0.0
+
+# Preprocessing settings
+preprocessing:
+  pad_value: 255
+  normalization_mean: [0.485, 0.456, 0.406]  # ImageNet mean values
+  normalization_std: [0.229, 0.224, 0.225]   # ImageNet std values
+
+# Visualization settings
+visualization:
+  figure_size: [16, 8]
+  curve_figure_size: [10, 6]

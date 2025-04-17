@@ -54,7 +54,7 @@ from img2latex.utils.visualize_metrics import (
 
 app = typer.Typer(name="img2latex", help="Image to LaTeX conversion tool")
 console = Console()
-logger = get_logger(__name__)
+logger = get_logger(__name__, log_level="INFO")
 
 # Create analysis sub-app
 analysis_app = typer.Typer(help="Analysis tools for img2latex")
@@ -176,11 +176,9 @@ def train(
 
         # Create data loaders
         data_loaders = create_data_loaders(
-            data_dir=config["data"]["data_dir"],
+            config=config,
             tokenizer=tokenizer,
-            model_type=config["model"]["name"],
-            batch_size=config["data"]["batch_size"],
-            num_workers=config["data"]["num_workers"],
+            max_samples=None,
         )
 
         # Create model
@@ -363,12 +361,19 @@ def evaluate(
         if num_samples:
             max_samples[split] = num_samples
 
+        # Add necessary data parameters to config if not present
+        if "data" not in config:
+            config["data"] = {}
+        if "data_dir" not in config["data"]:
+            config["data"]["data_dir"] = data_dir
+        if "batch_size" not in config["data"]:
+            config["data"]["batch_size"] = batch_size
+        if "num_workers" not in config["data"]:
+            config["data"]["num_workers"] = 0  # Default to 0 workers
+
         data_loaders = create_data_loaders(
-            data_dir=data_dir,
+            config=config,
             tokenizer=predictor.tokenizer,
-            model_type=predictor.model_type,
-            batch_size=batch_size,
-            num_workers=4,
             max_samples=max_samples,
         )
 

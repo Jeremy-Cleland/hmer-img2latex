@@ -19,7 +19,7 @@ from img2latex.utils.mps_utils import set_device
 from img2latex.utils.path_utils import path_manager
 from img2latex.utils.registry import experiment_registry
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, log_level="INFO")
 
 
 class Trainer:
@@ -254,172 +254,164 @@ class Trainer:
         Train the model for one epoch.
 
         Returns:
-            Dictionary of training metrics
+            Dictionary of training metrics for the epoch
         """
+        # Set model to training mode
         self.model.train()
 
+        # Initialize epoch metrics
         epoch_loss = 0.0
         epoch_acc = 0.0
         epoch_tokens = 0
         epoch_samples = 0
 
-        progress_bar = tqdm(
+        # Get progress bar settings from config
+        logging_config = self.config.get("logging", {})
+        batch_log_frequency = logging_config.get("batch_log_frequency", 5)
+        detailed_log_frequency = logging_config.get("detailed_log_frequency", 50)
+
+        # Create progress bar
+        pbar = tqdm(
             self.train_loader,
-            desc=f"Training epoch {self.current_epoch + 1}/{self.max_epochs}",
-            leave=False,
+            desc=f"Epoch {self.current_epoch + 1}/{self.max_epochs}",
+            leave=True,
         )
 
-        # Do a deep clean before starting the epoch
-        if self.device.type == "mps":
-            from img2latex.utils.mps_utils import deep_clean_memory
+        # Reset gradients
+        self.optimizer.zero_grad(set_to_none=True)
 
-            deep_clean_memory()
-
-        # Only zero gradients at the beginning if using accumulation
-        if self.accumulation_steps > 1:
-            self.optimizer.zero_grad(set_to_none=True)
-
-        for batch_idx, batch in enumerate(progress_bar):
-            # Prepare batch
-            images, targets = prepare_batch(
-                batch, self.device, model_type=self.config["model"]["name"]
-            )
-
-            # Zero the gradients if not using accumulation or at the start of accumulation cycle
+        # Iterate over batches
+        for batch_idx, batch in enumerate(pbar):
+            # Handle gradient accumulation
             if self.accumulation_steps == 1:
-                self.optimizer.zero_grad(
-                    set_to_none=True
-                )  # More efficient memory clearing
+                # Standard case: no gradient accumulation
+                # Forward pass
+                images, formulas = prepare_batch(batch, self.device)
+                outputs = self.model(images, formulas)
 
-            # Forward pass
-            outputs = self.model(images, targets)
+                # Calculate loss
+                # outputs shape: (batch_size, seq_length, vocab_size)
+                # formulas shape: (batch_size, seq_length)
+                # We need to exclude the last token (end token) in the targets
+                logits = outputs.transpose(1, 2)  # (batch_size, vocab_size, seq_length)
+                targets = formulas[
+                    :, 1:
+                ]  # Exclude the first token (start token) in targets
+                loss = self.criterion(logits, targets)
 
-            # Reshape for loss calculation
-            batch_size, seq_length, vocab_size = outputs.shape
-            targets_shifted = targets[:, 1:]  # Skip the first token (START token)
+                # Backward pass
+                loss.backward()
 
-            # Calculate loss and normalize by accumulation steps
-            loss = (
-                self.criterion(
-                    outputs.reshape(-1, vocab_size), targets_shifted.reshape(-1)
-                )
-                / self.accumulation_steps
-            )  # Normalize loss
-
-            # Backward pass
-            loss.backward()
-
-            # Get the loss value before optimization (multiply by accumulation steps to get the actual loss)
-            loss_value = loss.item() * self.accumulation_steps
-            # Use masked_accuracy for simple training metrics calculation
-            acc_value, num_tokens_value = masked_accuracy(
-                outputs, targets_shifted, self.tokenizer.pad_token_id
-            )
-
-            # Free memory by explicitly removing references to tensors
-            del loss, outputs, images, targets, targets_shifted
-
-            # Update counters
-            epoch_loss += loss_value * batch_size
-            epoch_acc += acc_value * num_tokens_value
-            epoch_tokens += num_tokens_value
-            epoch_samples += batch_size
-
-            # Only update weights and reset gradients after accumulation steps or at the end of epoch
-            if (batch_idx + 1) % self.accumulation_steps == 0 or batch_idx == len(
-                self.train_loader
-            ) - 1:
-                # Gradient clipping
+                # Clip gradients
                 if self.grad_clip_norm > 0:
-                    torch.nn.utils.clip_grad_norm_(
+                    nn.utils.clip_grad_norm_(
                         self.model.parameters(), self.grad_clip_norm
                     )
 
-                # Optimizer step
+                # Update weights
                 self.optimizer.step()
-
-                # Zero gradients after optimization
                 self.optimizer.zero_grad(set_to_none=True)
+            else:
+                # Gradient accumulation case
+                # Forward pass
+                images, formulas = prepare_batch(batch, self.device)
+                outputs = self.model(images, formulas)
 
-                # Increment global step after accumulation cycle completes
-                self.global_step += 1
+                # Calculate loss
+                logits = outputs.transpose(1, 2)
+                targets = formulas[:, 1:]
+                # Normalize loss by accumulation steps to keep the same scale
+                loss = self.criterion(logits, targets) / self.accumulation_steps
+                # Backward pass
+                loss.backward()
 
-                # Update progress bar
-                progress_bar.set_postfix({"loss": loss_value, "acc": acc_value})
+                # Update weights and zero gradients at the end of accumulation
+                if (batch_idx + 1) % self.accumulation_steps == 0 or batch_idx == len(
+                    self.train_loader
+                ) - 1:
+                    # Clip gradients
+                    if self.grad_clip_norm > 0:
+                        nn.utils.clip_grad_norm_(
+                            self.model.parameters(), self.grad_clip_norm
+                        )
 
-                # Save checkpoint if needed
-                if (
-                    self.use_epoch_checkpointing
-                    and (self.current_epoch + 1) % self.save_checkpoint_epochs == 0
-                    and batch_idx == len(self.train_loader) - 1
-                ):
-                    # Save at the end of epochs that are divisible by save_checkpoint_epochs
-                    metrics = {
-                        "train_loss": epoch_loss / epoch_samples,
-                        "train_acc": epoch_acc / epoch_tokens,
-                    }
-                    self.save_checkpoint(
-                        epoch=self.current_epoch, step=self.global_step, metrics=metrics
-                    )
-                elif (
-                    not self.use_epoch_checkpointing
-                    and self.global_step % self.save_checkpoint_steps == 0
-                ):
-                    # Traditional step-based saving if epoch-based saving is not enabled
-                    metrics = {
-                        "train_loss": epoch_loss / epoch_samples,
-                        "train_acc": epoch_acc / epoch_tokens,
-                    }
-                    self.save_checkpoint(
-                        epoch=self.current_epoch, step=self.global_step, metrics=metrics
-                    )
+                    # Update weights
+                    self.optimizer.step()
+                    self.optimizer.zero_grad(set_to_none=True)
 
-                # Deep clean after saving checkpoint (for either type of checkpoint)
-                if (
-                    self.use_epoch_checkpointing
-                    and (self.current_epoch + 1) % self.save_checkpoint_epochs == 0
-                    and batch_idx == len(self.train_loader) - 1
-                ) or (
-                    not self.use_epoch_checkpointing
-                    and self.global_step % self.save_checkpoint_steps == 0
-                ):
-                    if self.device.type == "mps":
-                        from img2latex.utils.mps_utils import deep_clean_memory
+            # Update epoch metrics
+            # Undo the loss normalization for metric tracking
+            if self.accumulation_steps > 1:
+                loss.item() * self.accumulation_steps
+            batch_size = formulas.size(0)
+            batch_tokens = (targets != self.tokenizer.pad_token_id).sum().item()
+            batch_acc, batch_tokens = masked_accuracy(
+                outputs, targets, self.tokenizer.pad_token_id
+            )
 
-                        deep_clean_memory()
+            # Update running metrics
+            epoch_loss += loss.item() * batch_size
+            epoch_acc += batch_acc
+            epoch_tokens += batch_tokens
+            epoch_samples += batch_size
 
-            # Clean up GPU memory in MPS mode - do more frequently (every 5 batches)
-            if self.device.type == "mps":
-                from img2latex.utils.mps_utils import empty_cache
+            # Increment global step
+            self.global_step += 1
 
-                if batch_idx % 5 == 0:
-                    empty_cache(force_gc=True)
-                # Perform a deeper clean periodically
-                if batch_idx % 50 == 0:
-                    from img2latex.utils.mps_utils import deep_clean_memory
+            # Save checkpoint based on steps
+            if (
+                not self.use_epoch_checkpointing
+                and self.global_step % self.save_checkpoint_steps == 0
+            ):
+                metrics = {
+                    "train_loss": epoch_loss / epoch_samples,
+                    "train_acc": epoch_acc / epoch_tokens,
+                    "epoch": self.current_epoch,
+                    "step": self.global_step,
+                }
+                self.save_checkpoint(
+                    self.current_epoch, self.global_step, metrics, is_best=False
+                )
 
-                    deep_clean_memory()
+            # Update progress bar
+            if batch_idx % batch_log_frequency == 0:
+                pbar.set_description(f"Loss: {loss.item():.4f}")
+
+            if batch_idx % detailed_log_frequency == 0:
+                # More detailed logging at less frequent intervals
+                logger.info(
+                    f"Epoch {self.current_epoch + 1}/{self.max_epochs}, "
+                    f"Batch {batch_idx + 1}/{len(self.train_loader)}, "
+                    f"Loss: {loss.item():.4f}, "
+                    f"Acc: {batch_acc / batch_tokens if batch_tokens > 0 else 0:.4f}"
+                )
 
         # Calculate epoch metrics
-        metrics = {
+        epoch_metrics = {
             "train_loss": epoch_loss / epoch_samples,
-            "train_acc": epoch_acc / epoch_tokens,
-            "epoch": self.current_epoch + 1,
+            "train_acc": epoch_acc / epoch_tokens if epoch_tokens > 0 else 0,
+            "train_samples": epoch_samples,
+            "epoch": self.current_epoch,
             "step": self.global_step,
         }
 
-        # Log metrics
-        experiment_registry.log_metrics(
-            self.experiment_name, metrics, step=self.current_epoch + 1
-        )
-
+        # Log epoch metrics
         logger.info(
-            f"Epoch {self.current_epoch + 1}/{self.max_epochs}, "
-            f"Train Loss: {metrics['train_loss']:.4f}, "
-            f"Accuracy: {metrics['train_acc']:.4f}"
+            f"Epoch {self.current_epoch + 1}/{self.max_epochs} - "
+            f"Train Loss: {epoch_metrics['train_loss']:.4f}, "
+            f"Train Acc: {epoch_metrics['train_acc']:.4f}"
         )
 
-        return metrics
+        # Save epoch checkpoint if using epoch-based checkpointing
+        if (
+            self.use_epoch_checkpointing
+            and (self.current_epoch + 1) % self.save_checkpoint_epochs == 0
+        ):
+            self.save_checkpoint(
+                self.current_epoch, self.global_step, epoch_metrics, is_best=False
+            )
+
+        return epoch_metrics
 
     def validate(self) -> Dict[str, float]:
         """
@@ -428,262 +420,164 @@ class Trainer:
         Returns:
             Dictionary of validation metrics
         """
+        # Set model to evaluation mode
         self.model.eval()
 
-        # Do a deep clean before starting validation
-        if self.device.type == "mps":
-            from img2latex.utils.mps_utils import deep_clean_memory
+        # Get evaluation config
+        eval_cfg = self.config.get("evaluation", {})
 
-            deep_clean_memory()
+        # Get logging config
+        logging_config = self.config.get("logging", {})
+        val_log_frequency = logging_config.get("val_log_frequency", 25)
+        detailed_eval_frequency = logging_config.get("detailed_eval_frequency", 5)
 
+        # Initialize validation metrics
         val_loss = 0.0
         val_acc = 0.0
         val_tokens = 0
         val_samples = 0
 
-        # Lists to store predictions and targets for metric calculation
+        # Lists to store predictions and targets for BLEU calculation
         all_predictions = []
         all_targets = []
 
-        # Store outputs and targets for enhanced metrics
-        enhanced_metrics_batch = None
-        enhanced_metrics_targets = None
-
-        progress_bar = tqdm(
+        # Create progress bar
+        pbar = tqdm(
             self.val_loader,
-            desc=f"Validation epoch {self.current_epoch + 1}/{self.max_epochs}",
-            leave=False,
+            desc=f"Validation (Epoch {self.current_epoch + 1})",
+            leave=True,
         )
 
         with torch.no_grad():
-            for batch_idx, batch in enumerate(progress_bar):
-                try:
-                    # Prepare batch
-                    images, targets = prepare_batch(
-                        batch, self.device, model_type=self.config["model"]["name"]
-                    )
-
-                    # Forward pass
-                    outputs = self.model(images, targets)
-
-                    # Reshape for loss calculation
-                    batch_size, seq_length, vocab_size = outputs.shape
-                    targets_shifted = targets[
-                        :, 1:
-                    ]  # Skip the first token (START token)
-
-                    # Calculate loss
-                    loss = self.criterion(
-                        outputs.reshape(-1, vocab_size), targets_shifted.reshape(-1)
-                    )
-
-                    # Store values before freeing memory
-                    loss_value = loss.item()
-
-                    # Calculate accuracy using only masked_accuracy
-                    from img2latex.training.metrics import masked_accuracy
-
-                    acc, num_tokens = masked_accuracy(
-                        outputs, targets_shifted, self.tokenizer.pad_token_id
-                    )
-                    acc_value = acc
-
-                    # Update counters
-                    val_loss += loss_value * batch_size
-                    val_acc += acc_value * num_tokens
-                    val_tokens += num_tokens
-                    val_samples += batch_size
-
-                    # Update progress bar
-                    progress_bar.set_postfix({"loss": loss_value, "acc": acc_value})
-
-                    # Get predictions for metric calculation
-                    # We'll use a subset of the validation set for BLEU and Levenshtein metrics
-                    if batch_idx < self.bleu_batches:
-                        pred_ids = torch.argmax(outputs, dim=-1).cpu().numpy()
-                        target_ids = targets_shifted.cpu().numpy()
-
-                        # Convert to list of lists
-                        for i in range(batch_size):
-                            # Get masks for non-padding tokens
-                            pred_mask = pred_ids[i] != self.tokenizer.pad_token_id
-                            target_mask = target_ids[i] != self.tokenizer.pad_token_id
-
-                            # Get non-padding tokens
-                            pred_tokens = pred_ids[i][pred_mask].tolist()
-                            target_tokens = target_ids[i][target_mask].tolist()
-
-                            # Add to lists
-                            all_predictions.append(pred_tokens)
-                            all_targets.append(target_tokens)
-
-                        # Store first batch for enhanced metrics (make copies to avoid memory issues)
-                        if batch_idx == 0:
-                            enhanced_metrics_batch = outputs.detach().cpu().clone()
-                            enhanced_metrics_targets = (
-                                targets_shifted.detach().cpu().clone()
-                            )
-
-                    # Free memory explicitly
-                    del outputs, loss, images, targets, targets_shifted
-
-                    # Clean up GPU memory in MPS mode more aggressively
-                    if self.device.type == "mps":
-                        # Clean up more frequently
-                        if batch_idx % 5 == 0:
-                            from img2latex.utils.mps_utils import empty_cache
-
-                            empty_cache(force_gc=True)
-
-                        # Perform deep clean periodically
-                        if batch_idx % 25 == 0 and batch_idx > 0:
-                            from img2latex.utils.mps_utils import deep_clean_memory
-
-                            deep_clean_memory()
-
-                except RuntimeError as e:
-                    # Handle out of memory errors gracefully
-                    if "out of memory" in str(e).lower():
-                        logger.warning(
-                            f"Out of memory during validation at batch {batch_idx}. Cleaning memory and continuing."
-                        )
-
-                        # Do an aggressive memory cleanup
-                        if self.device.type == "mps":
-                            from img2latex.utils.mps_utils import deep_clean_memory
-
-                            deep_clean_memory()
-
-                        # Skip this batch and continue
-                        continue
-                    else:
-                        # Re-raise other errors
-                        raise
-
-        # Calculate validation metrics with safety checks to avoid division by zero
-        if val_samples > 0 and val_tokens > 0:
-            metrics = {
-                "val_loss": val_loss / val_samples,
-                "val_acc": val_acc / val_tokens,
-                "epoch": self.current_epoch + 1,
-                "step": self.global_step,
-            }
-        else:
-            # Fallback if no valid samples were processed
-            metrics = {
-                "val_loss": float("inf"),
-                "val_acc": 0.0,
-                "epoch": self.current_epoch + 1,
-                "step": self.global_step,
-            }
-
-        # Calculate additional metrics if we have predictions
-        if all_predictions:
-            try:
-                # Get metrics directory
-                metrics_dir = path_manager.get_metrics_dir(self.experiment_name)
-
-                # Determine if we should generate enhanced metrics visualization
-                should_generate_enhanced = (
-                    enhanced_metrics_batch is not None
-                    and enhanced_metrics_targets is not None
-                    and (
-                        self.current_epoch % 5 == 0
-                        or val_loss / val_samples < self.best_val_loss
-                    )
+            # Iterate over batches
+            for batch_idx, batch in enumerate(pbar):
+                # Extract data
+                images, formulas = prepare_batch(
+                    batch, self.device, model_type=self.config["model"]["name"]
                 )
 
-                if should_generate_enhanced:
-                    try:
-                        # Do a memory cleanup before generating metrics
-                        if self.device.type == "mps":
-                            from img2latex.utils.mps_utils import empty_cache
+                # Forward pass
+                outputs = self.model(images, formulas)
 
-                            empty_cache(force_gc=True)
+                # Calculate loss
+                logits = outputs.transpose(1, 2)
+                targets = formulas[:, 1:]  # Exclude START token
+                loss = self.criterion(logits, targets)
 
-                        # Compute all metrics in one call
-                        enhanced_metrics = compute_all_metrics(
-                            outputs=enhanced_metrics_batch,
-                            targets=enhanced_metrics_targets,
-                            all_predictions=all_predictions,
-                            all_targets=all_targets,
-                            tokenizer=self.tokenizer,
-                            num_samples=min(
-                                self.enhanced_samples, len(all_predictions)
-                            ),
-                            experiment_name=self.experiment_name,
-                            metrics_dir=metrics_dir,
-                            epoch=self.current_epoch,
-                            save_to_file=True,
-                        )
-
-                        # Update metrics with calculated values from the unified metrics
-                        metrics.update(
-                            {
-                                "val_bleu": enhanced_metrics["bleu"],
-                                "val_levenshtein": enhanced_metrics["levenshtein"],
-                            }
-                        )
-
-                    except Exception as e:
-                        logger.error(f"Error generating enhanced metrics: {e}")
-                    finally:
-                        # Clean up enhanced metrics tensors explicitly
-                        del enhanced_metrics_batch
-                        del enhanced_metrics_targets
-
-                        if self.device.type == "mps":
-                            from img2latex.utils.mps_utils import deep_clean_memory
-
-                            deep_clean_memory()
-                else:
-                    # Just compute basic metrics without enhanced visualization
-                    basic_metrics = compute_all_metrics(
-                        outputs=None,  # Skip tensor-based metrics
-                        targets=None,  # Skip tensor-based metrics
-                        all_predictions=all_predictions,
-                        all_targets=all_targets,
-                        tokenizer=self.tokenizer,
-                        save_to_file=False,  # Don't save when not doing enhanced metrics
-                    )
-                    metrics.update(
-                        {
-                            "val_bleu": basic_metrics["bleu"],
-                            "val_levenshtein": basic_metrics["levenshtein"],
-                        }
-                    )
-
-            except Exception as e:
-                logger.error(f"Error calculating additional metrics: {e}")
-                metrics.update(
-                    {
-                        "val_bleu": 0.0,
-                        "val_levenshtein": 0.0,
-                    }
+                # Update metrics
+                batch_size = formulas.size(0)
+                batch_acc, batch_tokens = masked_accuracy(
+                    outputs, targets, self.tokenizer.pad_token_id
                 )
 
-        # Log metrics
-        experiment_registry.log_metrics(
-            self.experiment_name, metrics, step=self.current_epoch + 1
-        )
+                val_loss += loss.item() * batch_size
+                val_acc += batch_acc
+                val_tokens += batch_tokens
+                val_samples += batch_size
 
+                # Store predictions and targets for first few batches
+                if batch_idx < self.bleu_batches:
+                    # Get the predicted tokens
+                    pred_tokens = torch.argmax(outputs, dim=-1).cpu().numpy()
+                    true_tokens = targets.cpu().numpy()
+
+                    # Loop through batch
+                    for i in range(batch_size):
+                        # Convert to list and remove padding
+                        pred_list = pred_tokens[i].tolist()
+                        true_list = true_tokens[i].tolist()
+
+                        # Remove padding tokens
+                        pred_clean = []
+                        for token in pred_list:
+                            if token == self.tokenizer.pad_token_id:
+                                break
+                            pred_clean.append(token)
+
+                        true_clean = []
+                        for token in true_list:
+                            if token == self.tokenizer.pad_token_id:
+                                break
+                            true_clean.append(token)
+
+                        # Store cleaned sequences
+                        all_predictions.append(pred_clean)
+                        all_targets.append(true_clean)
+
+                # Update progress bar
+                if batch_idx == 0:
+                    pbar.set_description(
+                        f"Val Loss: {loss.item():.4f}, Val Acc: {batch_acc / batch_tokens if batch_tokens > 0 else 0:.4f}"
+                    )
+
+                # Log intermediate results
+                if batch_idx % val_log_frequency == 0:
+                    logger.info(
+                        f"Validation Batch {batch_idx + 1}/{len(self.val_loader)}, "
+                        f"Loss: {loss.item():.4f}, "
+                        f"Acc: {batch_acc / batch_tokens if batch_tokens > 0 else 0:.4f}"
+                    )
+
+                if batch_idx % 25 == 0 and batch_idx > 0:
+                    # Show a sample prediction vs target
+                    if len(all_predictions) > 0:
+                        idx = min(batch_idx, len(all_predictions) - 1)
+                        pred_text = self.tokenizer.decode(all_predictions[idx])
+                        true_text = self.tokenizer.decode(all_targets[idx])
+                        logger.info(f"Sample prediction: {pred_text}")
+                        logger.info(f"Sample target: {true_text}")
+
+        # Calculate overall validation metrics
+        val_metrics = {
+            "val_loss": val_loss / val_samples,
+            "val_acc": val_acc / val_tokens if val_tokens > 0 else 0,
+            "val_samples": val_samples,
+            "epoch": self.current_epoch,
+            "step": self.global_step,
+        }
+
+        # Compute additional metrics if predictions were collected
+        if all_predictions and all_targets:
+            # Calculate enhanced metrics (e.g., BLEU)
+            use_detailed_metrics = (
+                self.current_epoch % detailed_eval_frequency == 0
+                or self.current_epoch == self.max_epochs - 1
+            )
+
+            bleu_metrics = compute_all_metrics(
+                outputs=None,
+                targets=None,
+                all_predictions=all_predictions,
+                all_targets=all_targets,
+                tokenizer=self.tokenizer,
+                num_samples=self.enhanced_samples,
+                experiment_name=self.experiment_name if use_detailed_metrics else None,
+                metrics_dir=path_manager.get_metrics_dir(self.experiment_name)
+                if use_detailed_metrics
+                else None,
+                save_to_file=use_detailed_metrics,
+                epoch=self.current_epoch,
+            )
+
+            # Merge metrics
+            val_metrics.update(bleu_metrics)
+
+        # Log validation metrics
         logger.info(
-            f"Epoch {self.current_epoch + 1}/{self.max_epochs}, "
-            f"Validation Loss: {metrics['val_loss']:.4f}, "
-            f"Accuracy: {metrics['val_acc']:.4f}"
-            + (
-                f", BLEU: {metrics.get('val_bleu', 0):.4f}"
-                if "val_bleu" in metrics
-                else ""
-            )
-            + (
-                f", Levenshtein: {metrics.get('val_levenshtein', 0):.4f}"
-                if "val_levenshtein" in metrics
-                else ""
-            )
+            f"Validation (Epoch {self.current_epoch + 1}) - "
+            f"Loss: {val_metrics['val_loss']:.4f}, "
+            f"Acc: {val_metrics['val_acc']:.4f}"
+            f", BLEU: {val_metrics.get('val_bleu', 0):.4f}"
         )
 
-        return metrics
+        # Add Levenshtein distance if available
+        if "val_levenshtein" in val_metrics:
+            logger.info(
+                f"Validation metrics - "
+                f", Levenshtein: {val_metrics.get('val_levenshtein', 0):.4f}"
+            )
+
+        return val_metrics
 
     def train(self) -> Dict[str, float]:
         """
@@ -698,26 +592,21 @@ class Trainer:
         # Set smaller batch sizes for MPS if needed
         if self.device.type == "mps":
             # Check available MPS memory
-            import os
-
-            import torch
-
-            try:
-                rec_max = torch.mps.recommended_max_memory()
-                # If we have less than 6GB of available memory, reduce batch sizes
-                if rec_max < 6 * (1024**3):
-                    train_batch_size = self.config.get("data", {}).get(
-                        "batch_size", 128
+            rec_max = torch.mps.recommended_max_memory()
+            # If we have less than 6GB of available memory, reduce batch sizes
+            if rec_max < 6 * (1024**3):
+                train_batch_size = self.config.get("data", {}).get("batch_size", 128)
+                # Use fallback_batch_size from config if available, otherwise default to 32
+                fallback_batch_size = self.config.get("data", {}).get(
+                    "fallback_batch_size", 32
+                )
+                if train_batch_size > fallback_batch_size:
+                    new_batch_size = fallback_batch_size
+                    logger.warning(
+                        f"Limited MPS memory detected ({rec_max / (1024**3):.2f}GB). Reducing batch size from {train_batch_size} to {new_batch_size}"
                     )
-                    if train_batch_size > 32:
-                        new_batch_size = 32
-                        logger.warning(
-                            f"Limited MPS memory detected ({rec_max / (1024**3):.2f}GB). Reducing batch size from {train_batch_size} to {new_batch_size}"
-                        )
-                        # Set environment variable for batch size override
-                        os.environ["MPS_BATCH_SIZE_OVERRIDE"] = str(new_batch_size)
-            except Exception as e:
-                logger.warning(f"Error checking MPS memory: {e}")
+                    # Set environment variable for batch size override
+                    os.environ["MPS_BATCH_SIZE_OVERRIDE"] = str(new_batch_size)
 
         # Training loop
         for epoch in range(self.current_epoch, self.max_epochs):

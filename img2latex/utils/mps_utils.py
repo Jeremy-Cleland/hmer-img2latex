@@ -10,7 +10,7 @@ import torch
 
 from img2latex.utils.logging import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, log_level="INFO")
 
 
 def is_mps_available() -> bool:

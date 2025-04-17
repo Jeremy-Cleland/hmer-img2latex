@@ -17,7 +17,7 @@ from scipy.stats import entropy
 from img2latex.data.tokenizer import LaTeXTokenizer
 from img2latex.utils.logging import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, log_level="INFO")
 
 
 def _detach_to_cpu(
@@ -95,7 +95,7 @@ def levenshtein_distance(sequence_one: List[int], sequence_two: List[int]) -> fl
 
 
 def bleu_n_score(
-    generated_sequence: List[int], true_sequence: List[int], n: int = 4
+    generated_sequence: List[int], true_sequence: List[int], n: int = None
 ) -> float:
     """
     Calculate the BLEU-n score for a generated sequence.
@@ -108,6 +108,10 @@ def bleu_n_score(
     Returns:
         BLEU-n score
     """
+    # Set default value if not provided
+    if n is None:
+        n = 4  # Fallback only if config value not passed
+
     gen_len = len(generated_sequence)
     true_len = len(true_sequence)
 

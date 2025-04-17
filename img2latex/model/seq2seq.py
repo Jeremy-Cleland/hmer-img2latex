@@ -11,7 +11,7 @@ from img2latex.model.decoder import LSTMDecoder
 from img2latex.model.encoder import CNNEncoder, ResNetEncoder
 from img2latex.utils.logging import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, log_level="INFO")
 
 
 class Seq2SeqModel(nn.Module):
@@ -25,7 +25,7 @@ class Seq2SeqModel(nn.Module):
     def __init__(
         self,
         model_type: str = "cnn_lstm",
-        vocab_size: int = 100,
+        vocab_size: int = None,
         encoder_params: Dict = None,
         decoder_params: Dict = None,
     ):
@@ -45,6 +45,10 @@ class Seq2SeqModel(nn.Module):
             encoder_params = {}
         if decoder_params is None:
             decoder_params = {}
+
+        # Set default vocab_size if not provided
+        if vocab_size is None:
+            vocab_size = 100  # Fallback only if no value provided
 
         # Get embedding dimension from encoder params
         embedding_dim = encoder_params.get("embedding_dim", 256)
@@ -122,11 +126,11 @@ class Seq2SeqModel(nn.Module):
         image: torch.Tensor,
         start_token_id: int,
         end_token_id: int,
-        max_length: int = 150,
-        temperature: float = 1.0,
-        top_k: int = 0,
-        top_p: float = 0.0,
-        beam_size: int = 0,
+        max_length: int = None,
+        temperature: float = None,
+        top_k: int = None,
+        top_p: float = None,
+        beam_size: int = None,
     ) -> List[int]:
         """
         Generate a LaTeX sequence for an input image (inference mode).
@@ -144,7 +148,17 @@ class Seq2SeqModel(nn.Module):
         Returns:
             List of token IDs for the generated sequence
         """
-        # Beam search is not used; beam_size will be clamped externally.
+        # Set default values if not provided
+        if max_length is None:
+            max_length = 150  # Fallback only if config value not passed
+        if temperature is None:
+            temperature = 1.0  # Fallback only if config value not passed
+        if top_k is None:
+            top_k = 0  # Fallback only if config value not passed
+        if top_p is None:
+            top_p = 0.0  # Fallback only if config value not passed
+        if beam_size is None:
+            beam_size = 0  # Fallback only if config value not passed
 
         # Encode the image
         encoder_output = self.encoder(image)

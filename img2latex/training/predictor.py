@@ -14,7 +14,7 @@ from img2latex.model.seq2seq import Seq2SeqModel
 from img2latex.utils.logging import get_logger
 from img2latex.utils.mps_utils import set_device
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, log_level="INFO")
 
 
 class Predictor:

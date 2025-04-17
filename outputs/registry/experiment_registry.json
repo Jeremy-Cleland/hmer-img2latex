@@ -898,9 +898,35 @@
     "config_path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v7/config.yaml",
     "creation_time": "2025-04-16 23:02:14",
     "description": "Image-to-LaTeX model: resnet_lstm with 2048 embedding dim, 2048 hidden dim. Training with lr=0.001, batch_size=128, max_epochs=30",
-    "last_updated": "2025-04-16 23:02:14",
+    "last_updated": "2025-04-17 02:03:34",
     "metrics": {},
     "path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v7",
+    "status": "training",
+    "tags": [
+      "resnet_lstm",
+      "lr_0.001"
+    ]
+  },
+  "img2latex_v8": {
+    "config_path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v8/config.yaml",
+    "creation_time": "2025-04-17 02:04:34",
+    "description": "Image-to-LaTeX model: resnet_lstm with 2048 embedding dim, 2048 hidden dim. Training with lr=0.001, batch_size=128, max_epochs=30",
+    "last_updated": "2025-04-17 02:04:34",
+    "metrics": {},
+    "path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v8",
+    "status": "training",
+    "tags": [
+      "resnet_lstm",
+      "lr_0.001"
+    ]
+  },
+  "img2latex_v9": {
+    "config_path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v9/config.yaml",
+    "creation_time": "2025-04-17 02:04:58",
+    "description": "Image-to-LaTeX model: resnet_lstm with 2048 embedding dim, 2048 hidden dim. Training with lr=0.001, batch_size=128, max_epochs=30",
+    "last_updated": "2025-04-17 02:04:58",
+    "metrics": {},
+    "path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v9",
     "status": "training",
     "tags": [
       "resnet_lstm",

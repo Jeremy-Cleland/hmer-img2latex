@@ -10,7 +10,7 @@ import torchvision.models as models
 
 from img2latex.utils.logging import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, log_level="INFO")
 
 
 class CNNEncoder(nn.Module):
@@ -23,14 +23,14 @@ class CNNEncoder(nn.Module):
 
     def __init__(
         self,
-        img_height: int = 64,
-        img_width: int = 800,
-        channels: int = 1,
-        conv_filters: List[int] = [32, 64, 128],
-        kernel_size: int = 3,
-        pool_size: int = 2,
+        img_height: int = None,
+        img_width: int = None,
+        channels: int = None,
+        conv_filters: List[int] = None,
+        kernel_size: int = None,
+        pool_size: int = None,
         padding: str = "same",
-        embedding_dim: int = 256,
+        embedding_dim: int = None,
     ):
         """
         Initialize the CNN encoder.
@@ -46,6 +46,22 @@ class CNNEncoder(nn.Module):
             embedding_dim: Dimension of the output embedding
         """
         super(CNNEncoder, self).__init__()
+
+        # Set default values if not provided
+        if img_height is None:
+            img_height = 64  # Fallback only if config value not passed
+        if img_width is None:
+            img_width = 800  # Fallback only if config value not passed
+        if channels is None:
+            channels = 1  # Fallback only if config value not passed
+        if conv_filters is None:
+            conv_filters = [32, 64, 128]  # Fallback only if config value not passed
+        if kernel_size is None:
+            kernel_size = 3  # Fallback only if config value not passed
+        if pool_size is None:
+            pool_size = 2  # Fallback only if config value not passed
+        if embedding_dim is None:
+            embedding_dim = 256  # Fallback only if config value not passed
 
         self.img_height = img_height
         self.img_width = img_width
@@ -123,11 +139,11 @@ class ResNetEncoder(nn.Module):
 
     def __init__(
         self,
-        img_height: int = 64,
-        img_width: int = 800,
-        channels: int = 3,
+        img_height: int = None,
+        img_width: int = None,
+        channels: int = None,
         model_name: str = "resnet50",
-        embedding_dim: int = 256,
+        embedding_dim: int = None,
         freeze_backbone: bool = True,
     ):
         """
@@ -142,6 +158,16 @@ class ResNetEncoder(nn.Module):
             freeze_backbone: Whether to freeze the ResNet weights
         """
         super(ResNetEncoder, self).__init__()
+
+        # Set default values if not provided
+        if img_height is None:
+            img_height = 64  # Fallback only if config value not passed
+        if img_width is None:
+            img_width = 800  # Fallback only if config value not passed
+        if channels is None:
+            channels = 3  # Fallback only if config value not passed
+        if embedding_dim is None:
+            embedding_dim = 256  # Fallback only if config value not passed
 
         self.img_height = img_height
         self.img_width = img_width

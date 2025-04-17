@@ -32,25 +32,26 @@ def load_config(config_path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def pad_image(img: np.ndarray, target_width: int, pad_value: int = 255) -> np.ndarray:
+def pad_image(img: np.ndarray, target_width: int, pad_value: int = None) -> np.ndarray:
     """Pad image to target width.
 
     Args:
         img: Input image array
         target_width: Desired width after padding
-        pad_value: Value to use for padding (default: 255 for white)
+        pad_value: Value to use for padding (default: from config or 255 for white)
 
     Returns:
         Padded image array
     """
+    # Use default pad value if not provided
+    if pad_value is None:
+        pad_value = 255
+
     height, width = img.shape[:2]
 
     # No padding needed if image is already wider than target
     if width >= target_width:
         return img
-
-    # Calculate padding
-    pad_width = target_width - width
 
     # Create padded image
     if len(img.shape) == 3:  # Color image
@@ -115,7 +116,7 @@ def show_image_tensor(
 
 
 def get_image_stats(
-    image_folder: Union[str, Path], num_samples: int = 1000
+    image_folder: Union[str, Path], num_samples: int = None
 ) -> Tuple[float, float, float, float]:
     """Get average statistics for images in a folder.
 
@@ -126,6 +127,10 @@ def get_image_stats(
     Returns:
         Tuple of (mean_width, mean_height, mean_aspect_ratio, std_aspect_ratio)
     """
+    # Use default if not provided
+    if num_samples is None:
+        num_samples = 1000
+
     image_folder = Path(image_folder)
     image_files = list(image_folder.glob("*.png"))
 
@@ -170,6 +175,10 @@ def create_preprocessing_visualization(
     bg_color: str = "white",
     cnn_mode: bool = True,
     model_config: dict = None,
+    pad_value: int = None,
+    figure_size: tuple = None,
+    normalization_mean: list = None,
+    normalization_std: list = None,
 ) -> None:
     """Create visualization of preprocessing steps.
 
@@ -180,9 +189,26 @@ def create_preprocessing_visualization(
         bg_color: Background color for the plot
         cnn_mode: Whether to use CNN mode (grayscale) or ResNet mode (RGB)
         model_config: Model configuration for image dimensions
+        pad_value: Value to use for padding
+        figure_size: Size of the figure (width, height)
+        normalization_mean: Mean values for normalization
+        normalization_std: Standard deviation values for normalization
     """
     # Load the image
     img = Image.open(image_path)
+
+    # Use default values if not provided
+    if pad_value is None:
+        pad_value = 255
+
+    if figure_size is None:
+        figure_size = (16, 8)
+
+    if normalization_mean is None:
+        normalization_mean = [0.485, 0.456, 0.406]
+
+    if normalization_std is None:
+        normalization_std = [0.229, 0.224, 0.225]
 
     # Use default dimensions if model_config not provided
     if model_config is None:
@@ -203,7 +229,7 @@ def create_preprocessing_visualization(
         )
 
     # Create a figure with 2 rows: CNN and ResNet preprocessing
-    fig, axes = plt.subplots(2, 4, figsize=(16, 8), facecolor=bg_color)
+    fig, axes = plt.subplots(2, 4, figsize=figure_size, facecolor=bg_color)
 
     # Add a subtitle for each row
     axes[0, 0].text(
@@ -262,7 +288,7 @@ def create_preprocessing_visualization(
                 grayscale_img = resized_img.convert("L")
                 resized_arr = np.array(grayscale_img)
 
-            padded_arr = pad_image(resized_arr, target_width)
+            padded_arr = pad_image(resized_arr, target_width, pad_value)
             show_image_tensor(
                 axes[row, 2],
                 padded_arr,
@@ -276,7 +302,7 @@ def create_preprocessing_visualization(
                 rgb_img = Image.fromarray(resized_arr).convert("RGB")
                 resized_arr = np.array(rgb_img)
 
-            padded_arr = pad_image(resized_arr, target_width)
+            padded_arr = pad_image(resized_arr, target_width, pad_value)
             show_image_tensor(
                 axes[row, 2], padded_arr, f"3. Pad+RGB: {padded_arr.shape}"
             )
@@ -303,8 +329,8 @@ def create_preprocessing_visualization(
             tensor = tensor.permute(2, 0, 1)  # From HWC to CHW
 
             # Normalize with ImageNet stats
-            mean = torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1)
-            std = torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1)
+            mean = torch.tensor(normalization_mean).view(-1, 1, 1)
+            std = torch.tensor(normalization_std).view(-1, 1, 1)
             normalized = (tensor / 255.0 - mean) / std
 
             # For display, denormalize
@@ -378,12 +404,22 @@ def visualize(
     output_filename = f"preprocessing_{input_filename}"
     full_output_path = output_path / output_filename
 
-    # Extract model dimensions from config
-    model_name = cfg["model"]["name"]
-
     # Get CNN and ResNet config
     cnn_config = cfg["model"]["encoder"]["cnn"]
     resnet_config = cfg["model"]["encoder"]["resnet"]
+
+    # Get preprocessing and visualization config with defaults
+    pad_value = cfg["preprocessing"].get("pad_value", 255)
+    figure_size = tuple(cfg["visualization"].get("figure_size", (16, 8)))
+    normalization_mean = cfg["preprocessing"].get(
+        "normalization_mean", [0.485, 0.456, 0.406]
+    )
+    normalization_std = cfg["preprocessing"].get(
+        "normalization_std", [0.229, 0.224, 0.225]
+    )
+
+    # Get image stats samples config
+    num_samples = cfg["analysis"].get("image_stats_samples", 1000)
 
     # Create visualization
     print(f"Creating preprocessing visualization for {image_path}...")
@@ -405,6 +441,10 @@ def visualize(
                 "channels": resnet_config["channels"],
             },
         },
+        pad_value=pad_value,
+        figure_size=figure_size,
+        normalization_mean=normalization_mean,
+        normalization_std=normalization_std,
     )
 
     print(f"Visualization saved to {full_output_path}")

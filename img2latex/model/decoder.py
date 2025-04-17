@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from img2latex.utils.logging import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, log_level="INFO")
 
 
 class LSTMDecoder(nn.Module):
@@ -24,11 +24,11 @@ class LSTMDecoder(nn.Module):
     def __init__(
         self,
         vocab_size: int,
-        embedding_dim: int = 256,
-        hidden_dim: int = 256,
-        max_seq_length: int = 141,
-        lstm_layers: int = 1,
-        dropout: float = 0.1,
+        embedding_dim: int = None,
+        hidden_dim: int = None,
+        max_seq_length: int = None,
+        lstm_layers: int = None,
+        dropout: float = None,
         attention: bool = False,
     ):
         """
@@ -44,6 +44,18 @@ class LSTMDecoder(nn.Module):
             attention: Whether to use attention mechanism
         """
         super(LSTMDecoder, self).__init__()
+
+        # Set default values if not provided
+        if embedding_dim is None:
+            embedding_dim = 256  # Fallback only if config value not passed
+        if hidden_dim is None:
+            hidden_dim = 256  # Fallback only if config value not passed
+        if max_seq_length is None:
+            max_seq_length = 141  # Fallback only if config value not passed
+        if lstm_layers is None:
+            lstm_layers = 1  # Fallback only if config value not passed
+        if dropout is None:
+            dropout = 0.1  # Fallback only if config value not passed
 
         self.vocab_size = vocab_size
         self.embedding_dim = embedding_dim
