@@ -8,7 +8,7 @@ data:
   test_file: "im2latex_test_filter.lst"
   formulas_file: "im2latex_formulas.norm.lst"
   img_dir: "img"
-  batch_size: 16
+  batch_size: 128
   num_workers: 0
   max_seq_length: 141  # Maximum formula length (95th percentile)
 
@@ -34,12 +34,12 @@ model:
       model_name: "resnet50"  # Options: "resnet18", "resnet34", "resnet50", "resnet101", "resnet152"
       freeze_backbone: true
   # Embedding and decoder settings
-  embedding_dim: 512
+  embedding_dim: 2048
   decoder:
-    hidden_dim: 512
-    lstm_layers: 4
+    hidden_dim: 2048
+    lstm_layers: 2
     dropout: 0.1
-    attention: false
+    attention: true
 
 # Training settings
 training:
@@ -58,8 +58,17 @@ training:
 evaluation:
   metrics: ["loss", "accuracy", "bleu", "levenshtein"]
   bleu_n: 4  # n for BLEU-n score
+  bleu_batches: 10        # Number of batches to compute BLEU on during validation
+  enhanced_samples: 2     # Number of samples for enhanced metrics logging
 
 # Logging settings
+
+inference:
+  beam_size: 0        # Default beam size (0 = greedy)
+  max_length: 141     # Default maximum output sequence length
+  temperature: 1.0    # Softmax temperature for sampling
+  top_k: 0            # Top-k sampling parameter
+  top_p: 0.0          # Top-p (nucleus) sampling parameter
 logging:
   level: "INFO"
   log_to_file: true

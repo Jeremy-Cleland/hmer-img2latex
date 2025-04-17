@@ -577,7 +577,7 @@ def compute_all_metrics(
         sample_data = sample_predictions_and_targets(
             outputs_cpu, targets_cpu, tokenizer, num_samples, confidence_threshold
         )
-        combined_metrics["samples"] = sample_data["samples"]
+        combined_metrics["samples"] = sample_data
     else:
         # Set default values when no tensor inputs provided
         combined_metrics["accuracy"] = 0.0

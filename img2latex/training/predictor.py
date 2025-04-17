@@ -159,6 +159,13 @@ class Predictor:
         Returns:
             Predicted LaTeX formula
         """
+        # Clamp beam_size to config default
+        if beam_size > 0:
+            logger.warning(
+                "Beam search is unsupported; using greedy decoding (beam_size=0)."
+            )
+            beam_size = 0
+
         # Prepare image tensor
         img_tensor = self._prepare_image(image)
 
@@ -220,6 +227,13 @@ class Predictor:
         Returns:
             List of predicted LaTeX formulas
         """
+        # Clamp beam_size to config default
+        if beam_size > 0:
+            logger.warning(
+                "Beam search is unsupported; using greedy decoding (beam_size=0)."
+            )
+            beam_size = 0
+
         results = []
 
         # Process in batches

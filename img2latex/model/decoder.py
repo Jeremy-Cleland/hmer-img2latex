@@ -60,7 +60,7 @@ class LSTMDecoder(nn.Module):
         # Input consists of: token embedding + encoder output
         # So total input size is embedding_dim + embedding_dim = 2 * embedding_dim
         self.lstm = nn.LSTM(
-            input_size=2 * embedding_dim if not attention else embedding_dim,
+            input_size=2 * embedding_dim,
             hidden_size=hidden_dim,
             num_layers=lstm_layers,
             batch_first=True,

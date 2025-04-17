@@ -90,6 +90,18 @@ def load_config(config_path: str) -> Dict:
     # Load config
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
+    # Validate required config sections
+    required_sections = [
+        "data",
+        "model",
+        "training",
+        "evaluation",
+        "logging",
+        "inference",
+    ]
+    missing = [sec for sec in required_sections if sec not in config]
+    if missing:
+        raise KeyError(f"Missing required config sections: {missing}")
 
     return config
 
@@ -187,6 +199,8 @@ def train(
         encoder_params = config["model"]["encoder"]
         decoder_params = config["model"]["decoder"]
         embedding_dim = config["model"]["embedding_dim"]
+        # Propagate sequence length config into decoder parameters
+        decoder_params.setdefault("max_seq_length", config["data"]["max_seq_length"])
 
         # Get the correct encoder params based on model type
         if config["model"]["name"] == "cnn_lstm":

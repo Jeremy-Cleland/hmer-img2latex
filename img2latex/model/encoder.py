@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 class CNNEncoder(nn.Module):
     """
     CNN encoder for the image-to-LaTeX model.
-    
+
     This encoder processes input images through a series of convolutional and pooling layers,
     followed by a dense layer to produce a fixed-size encoding.
     """
@@ -30,11 +30,11 @@ class CNNEncoder(nn.Module):
         kernel_size: int = 3,
         pool_size: int = 2,
         padding: str = "same",
-        embedding_dim: int = 256
+        embedding_dim: int = 256,
     ):
         """
         Initialize the CNN encoder.
-        
+
         Args:
             img_height: Height of the input images
             img_width: Width of the input images
@@ -66,7 +66,7 @@ class CNNEncoder(nn.Module):
                     in_channels=in_channels,
                     out_channels=filters,
                     kernel_size=kernel_size,
-                    padding=padding_val
+                    padding=padding_val,
                 )
             )
             layers.append(nn.ReLU())
@@ -95,10 +95,10 @@ class CNNEncoder(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass through the CNN encoder.
-        
+
         Args:
             x: Input tensor of shape (batch_size, channels, height, width)
-            
+
         Returns:
             Tensor of shape (batch_size, embedding_dim)
         """
@@ -116,7 +116,7 @@ class CNNEncoder(nn.Module):
 class ResNetEncoder(nn.Module):
     """
     ResNet-based encoder for the image-to-LaTeX model.
-    
+
     This encoder uses a pre-trained ResNet model as a feature extractor,
     followed by a dense layer to produce a fixed-size encoding.
     """
@@ -128,11 +128,11 @@ class ResNetEncoder(nn.Module):
         channels: int = 3,
         model_name: str = "resnet50",
         embedding_dim: int = 256,
-        freeze_backbone: bool = True
+        freeze_backbone: bool = True,
     ):
         """
         Initialize the ResNet encoder.
-        
+
         Args:
             img_height: Height of the input images
             img_width: Width of the input images
@@ -163,9 +163,13 @@ class ResNetEncoder(nn.Module):
         elif model_name == "resnet50":
             self.resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
         elif model_name == "resnet101":
-            self.resnet = models.resnet101(weights=models.ResNet101_Weights.IMAGENET1K_V1)
+            self.resnet = models.resnet101(
+                weights=models.ResNet101_Weights.IMAGENET1K_V1
+            )
         elif model_name == "resnet152":
-            self.resnet = models.resnet152(weights=models.ResNet152_Weights.IMAGENET1K_V1)
+            self.resnet = models.resnet152(
+                weights=models.ResNet152_Weights.IMAGENET1K_V1
+            )
         else:
             raise ValueError(f"Invalid ResNet model name: {model_name}")
 
@@ -192,15 +196,17 @@ class ResNetEncoder(nn.Module):
         self.embedding_layer = nn.Linear(resnet_out_features, embedding_dim)
         self.activation = nn.ReLU()
 
-        logger.info(f"Initialized ResNet encoder ({model_name}) with output dimension: {embedding_dim}")
+        logger.info(
+            f"Initialized ResNet encoder ({model_name}) with output dimension: {embedding_dim}"
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass through the ResNet encoder.
-        
+
         Args:
             x: Input tensor of shape (batch_size, channels, height, width)
-            
+
         Returns:
             Tensor of shape (batch_size, embedding_dim)
         """

@@ -73,6 +73,9 @@ class Trainer:
 
         # Get training parameters
         training_config = config.get("training", {})
+        eval_cfg = config.get("evaluation", {})
+        self.bleu_batches = eval_cfg.get("bleu_batches", 10)
+        self.enhanced_samples = eval_cfg.get("enhanced_samples", 2)
 
         # Optimizer and loss
         self.learning_rate = training_config.get("learning_rate", 0.001)
@@ -496,7 +499,7 @@ class Trainer:
 
                     # Get predictions for metric calculation
                     # We'll use a subset of the validation set for BLEU and Levenshtein metrics
-                    if batch_idx < 10:  # Limit to first 10 batches to save time
+                    if batch_idx < self.bleu_batches:
                         pred_ids = torch.argmax(outputs, dim=-1).cpu().numpy()
                         target_ids = targets_shifted.cpu().numpy()
 
@@ -605,7 +608,9 @@ class Trainer:
                             all_predictions=all_predictions,
                             all_targets=all_targets,
                             tokenizer=self.tokenizer,
-                            num_samples=min(2, len(all_predictions)),
+                            num_samples=min(
+                                self.enhanced_samples, len(all_predictions)
+                            ),
                             experiment_name=self.experiment_name,
                             metrics_dir=metrics_dir,
                             epoch=self.current_epoch,
