@@ -4,6 +4,7 @@ Command-line interface for the image-to-LaTeX model.
 
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -41,7 +42,13 @@ from img2latex.data.tokenizer import LaTeXTokenizer
 from img2latex.model.seq2seq import Seq2SeqModel
 from img2latex.training.predictor import Predictor
 from img2latex.training.trainer import Trainer
-from img2latex.utils.logging import configure_logging, get_logger
+from img2latex.utils.logging import (
+    check_logger_status,
+    configure_logging,
+    get_logger,
+    log_execution_params,
+    log_to_file,
+)
 from img2latex.utils.mps_utils import set_device, set_seed
 from img2latex.utils.path_utils import path_manager
 from img2latex.utils.registry import experiment_registry
@@ -148,6 +155,12 @@ def train(
             config["logging"] = {}
         log_dir = str(path_manager.get_log_dir(experiment_name))
         config["logging"]["log_dir"] = log_dir
+
+        # Ensure logging to file is enabled
+        config["logging"]["log_to_file"] = True
+        config["logging"]["log_file"] = config["logging"].get("log_file", "train.log")
+        config["logging"]["level"] = config["logging"].get("level", "INFO")
+        config["logging"]["use_colors"] = config["logging"].get("use_colors", True)
 
         # Configure logging (now that we know the experiment directory)
         configure_logging(config)
@@ -265,6 +278,24 @@ def predict(
             checkpoint_path=checkpoint_path, device=device_obj
         )
 
+        # Log execution parameters
+        config = {
+            "command": "predict",
+            "model": {"name": predictor.model.model_type},
+            "training": {"experiment_name": "prediction"},
+            "inference": {
+                "beam_size": beam_size,
+                "max_length": max_length,
+                "temperature": temperature,
+                "top_k": top_k,
+                "top_p": top_p,
+                "device": str(device_obj),
+                "checkpoint_path": checkpoint_path,
+                "image_path": image_path,
+            },
+        }
+        log_execution_params(logger, config)
+
     # Predict
     with console.status("[bold green]Generating LaTeX...", spinner="dots"):
         latex = predictor.predict(
@@ -350,6 +381,23 @@ def evaluate(
             )
 
         config = checkpoint.get("config", {})
+
+        # Log execution parameters
+        eval_config = {
+            "command": "evaluate",
+            "model": {"name": config.get("model", {}).get("name", "unknown")},
+            "training": {"experiment_name": experiment_name or "evaluation"},
+            "evaluation": {
+                "split": split,
+                "batch_size": batch_size,
+                "num_samples": num_samples,
+                "beam_size": beam_size,
+                "device": str(device_obj),
+                "checkpoint_path": checkpoint_path,
+                "data_dir": data_dir,
+            },
+        }
+        log_execution_params(logger, eval_config)
 
         # Create predictor from checkpoint
         predictor = Predictor.from_checkpoint(
@@ -484,6 +532,19 @@ def visualize_metrics(
         f"[bold green]Visualizing metrics for experiment: {experiment_name}[/bold green]"
     )
 
+    # Log execution parameters
+    viz_config = {
+        "command": "visualize",
+        "model": {"name": "metrics_visualization"},
+        "training": {"experiment_name": experiment_name},
+        "visualization": {
+            "epoch": epoch,
+            "output_dir": output_dir,
+            "plot_trends": plot_trends,
+        },
+    }
+    log_execution_params(logger, viz_config)
+
     # Get metrics directory
     metrics_dir = path_manager.get_metrics_dir(experiment_name)
 
@@ -525,6 +586,95 @@ def visualize_metrics(
     if plot_trends:
         plot_metrics_over_time(metrics_list, output_dir)
         console.print("[green]Plots generated successfully[/green]")
+
+
+@app.command("debug-logs")
+def debug_logs(
+    experiment_name: str = typer.Option(None, help="Experiment name to check logs for"),
+    logger_name: str = typer.Option(None, help="Specific logger to check"),
+    test_write: bool = typer.Option(True, help="Test writing to logs"),
+):
+    """
+    Debug and check the status of the logging system.
+
+    This command helps diagnose issues with the logging system by:
+    - Checking the state of all registered loggers
+    - Attempting to write test log entries
+    - Checking log file permissions
+    """
+    console.print("[bold green]Checking logging system status...[/bold green]")
+
+    # Create a config with minimal settings
+    if experiment_name:
+        config = {
+            "command": "debug-logs",
+            "model": {"name": "debug"},
+            "training": {"experiment_name": experiment_name},
+            "logging": {
+                "level": "DEBUG",
+                "log_to_file": True,
+                "log_file": "debug.log",
+                "use_colors": True,
+            },
+        }
+
+        # Configure logging for the specified experiment
+        logger.info(f"Configuring logging for experiment: {experiment_name}")
+
+        # Get log directory
+        log_dir = path_manager.get_log_dir(experiment_name)
+        config["logging"]["log_dir"] = str(log_dir)
+
+        # Configure logging
+        configure_logging(config)
+
+    # Check status of loggers
+    if logger_name:
+        console.print(f"[green]Checking status for logger: {logger_name}[/green]")
+        check_logger_status(logger_name)
+    else:
+        console.print("[green]Checking status for all loggers:[/green]")
+        check_logger_status()
+
+    # Test writing to logs
+    if test_write and experiment_name:
+        console.print("\n[green]Testing log file writes:[/green]")
+        log_dir = path_manager.get_log_dir(experiment_name)
+
+        # Test direct write using log_to_file
+        test_log_path = log_dir / "test_direct_write.log"
+        result = log_to_file(
+            f"Direct write test at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            str(test_log_path),
+        )
+
+        if result:
+            console.print(f"[green]Successfully wrote to: {test_log_path}[/green]")
+        else:
+            console.print(f"[red]Failed to write to: {test_log_path}[/red]")
+
+        # Test logger write
+        logger.info(f"Debug log test for experiment {experiment_name}")
+        console.print("[green]Attempted to write to log using logger.info()[/green]")
+
+        # Show the log directory contents
+        console.print("\n[green]Log directory contents:[/green]")
+        try:
+            files = list(log_dir.glob("*.log"))
+            if files:
+                for file in files:
+                    file_size = file.stat().st_size
+                    console.print(f"  {file.name}: {file_size} bytes")
+
+                    # Check if file is empty and that's the issue
+                    if file_size == 0:
+                        console.print(f"[yellow]Warning: {file.name} is empty[/yellow]")
+            else:
+                console.print(
+                    "[yellow]No .log files found in the log directory[/yellow]"
+                )
+        except Exception as e:
+            console.print(f"[red]Error accessing log directory: {e}[/red]")
 
 
 # Register analysis subcommands under analysis_app

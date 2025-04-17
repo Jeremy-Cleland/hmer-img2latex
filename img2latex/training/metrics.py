@@ -223,42 +223,58 @@ def calculate_metrics(
     return result
 
 
-def masked_accuracy(
-    predictions: torch.Tensor, targets: torch.Tensor, pad_token_id: int
+def masked_accuracy(logits, targets, pad_token_id):
+    # 1. get CPU tensors
+    logits = logits.detach().cpu()
+    targets = targets.detach().cpu()
+    # 2. predict
+    pred = torch.argmax(logits, dim=-1)
+    # 3. mask
+    mask = targets.ne(pad_token_id)
+    # 4. count
+    correct = torch.logical_and(pred.eq(targets), mask).sum().item()
+    # 5. safe div
+    total = mask.sum().item()
+    return correct, total
+
+
+def token_list_accuracy(
+    predictions: List[List[int]], targets: List[List[int]], pad_token_id: int
 ) -> Tuple[float, int]:
     """
-    Calculate masked accuracy for a batch.
-
-    This function ignores padded tokens when calculating accuracy.
+    Calculate token-level accuracy for lists of token sequences.
 
     Args:
-        predictions: Prediction tensor of shape (batch_size, seq_length, vocab_size)
-        targets: Target tensor of shape (batch_size, seq_length)
+        predictions: List of predicted token sequences
+        targets: List of target token sequences
         pad_token_id: ID of the padding token to ignore
 
     Returns:
-        Tuple of (accuracy, number of tokens)
+        Tuple of (number of correct tokens, total tokens)
     """
-    # Ensure predictions and targets are properly detached and on CPU
-    predictions = _detach_to_cpu(predictions)
-    targets = _detach_to_cpu(targets)
+    total_correct = 0
+    total_tokens = 0
 
-    # Get the predicted tokens
-    pred_tokens = torch.argmax(predictions, dim=-1)
+    # Ensure we compare sequences of same length
+    for pred_seq, target_seq in zip(predictions, targets):
+        # Only compare up to the shorter sequence length
+        min_len = min(len(pred_seq), len(target_seq))
 
-    # Create a mask for non-padding tokens
-    mask = targets != pad_token_id
+        # Count correct tokens
+        correct = sum(
+            1
+            for i in range(min_len)
+            if pred_seq[i] == target_seq[i] and target_seq[i] != pad_token_id
+        )
 
-    # Calculate accuracy only for non-padding tokens
-    correct = torch.sum((pred_tokens == targets) * mask).item()
-    total = torch.sum(mask).item()
+        # Count non-padding tokens
+        non_pad = sum(1 for t in target_seq[:min_len] if t != pad_token_id)
 
-    # Avoid division by zero
-    if total == 0:
-        return 0.0, 0
+        total_correct += correct
+        total_tokens += non_pad
 
-    accuracy = correct / total
-    return accuracy, total
+    # Return raw counts, not ratio
+    return total_correct, total_tokens
 
 
 def analyze_token_distribution(
@@ -566,16 +582,18 @@ def compute_all_metrics(
     all_predictions_cpu = _detach_to_cpu(all_predictions)
     all_targets_cpu = _detach_to_cpu(all_targets)
 
-    # 2. Calculate accuracy if outputs and targets are provided
+    # 2. Calculate accuracy
     if outputs is not None and targets is not None:
+        # If we have model outputs, use them for more accurate token probability-based metrics
         outputs_cpu = _detach_to_cpu(outputs)
         targets_cpu = _detach_to_cpu(targets)
 
-        accuracy, num_tokens = masked_accuracy(
+        correct_count, num_tokens = masked_accuracy(
             outputs_cpu, targets_cpu, tokenizer.pad_token_id
         )
-        combined_metrics["accuracy"] = accuracy
-        combined_metrics["num_tokens"] = num_tokens
+
+        # Calculate accuracy ratio from counts
+        accuracy = correct_count / num_tokens if num_tokens > 0 else 0.0
 
         # 5. Sample predictions and targets for visualization (only if outputs/targets provided)
         sample_data = sample_predictions_and_targets(
@@ -583,10 +601,21 @@ def compute_all_metrics(
         )
         combined_metrics["samples"] = sample_data
     else:
-        # Set default values when no tensor inputs provided
-        combined_metrics["accuracy"] = 0.0
-        combined_metrics["num_tokens"] = 0
+        # Calculate accuracy directly from token lists if tensors aren't available
+        logger.info(
+            "Computing accuracy from token lists (outputs/targets tensors not provided)"
+        )
+        correct_count, num_tokens = token_list_accuracy(
+            all_predictions_cpu, all_targets_cpu, tokenizer.pad_token_id
+        )
+
+        # Calculate accuracy ratio from counts
+        accuracy = correct_count / num_tokens if num_tokens > 0 else 0.0
+
         combined_metrics["samples"] = {"samples": []}
+
+    combined_metrics["accuracy"] = accuracy
+    combined_metrics["num_tokens"] = num_tokens
 
     # 3. Calculate BLEU and Levenshtein metrics (always calculate on list inputs)
     basic_metrics = calculate_metrics(all_predictions_cpu, all_targets_cpu)

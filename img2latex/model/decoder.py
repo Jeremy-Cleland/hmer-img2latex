@@ -29,7 +29,7 @@ class LSTMDecoder(nn.Module):
         max_seq_length: int = None,
         lstm_layers: int = None,
         dropout: float = None,
-        attention: bool = False,
+        attention: bool = True,
     ):
         """
         Initialize the LSTM decoder.
@@ -41,7 +41,7 @@ class LSTMDecoder(nn.Module):
             max_seq_length: Maximum length of generated sequences
             lstm_layers: Number of LSTM layers
             dropout: Dropout rate
-            attention: Whether to use attention mechanism
+            attention: Whether to use attention mechanism (recommended)
         """
         super(LSTMDecoder, self).__init__()
 
@@ -69,8 +69,10 @@ class LSTMDecoder(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embedding_dim)
 
         # LSTM layer
-        # Input consists of: token embedding + encoder output
-        # So total input size is embedding_dim + embedding_dim = 2 * embedding_dim
+        # Input consists of: token embedding + encoder output (or context vector from attention)
+        # Total input size is embedding_dim + embedding_dim = 2 * embedding_dim
+        # This is correct whether using attention or not, as both the direct encoder output
+        # and the attention-based context vector have dimension embedding_dim
         self.lstm = nn.LSTM(
             input_size=2 * embedding_dim,
             hidden_size=hidden_dim,
@@ -82,6 +84,7 @@ class LSTMDecoder(nn.Module):
         # Attention mechanism
         if attention:
             self.attention = Attention(hidden_dim, embedding_dim)
+            logger.info("Using attention mechanism in decoder")
 
         # Output layer
         self.output_layer = nn.Linear(hidden_dim, vocab_size)
@@ -90,7 +93,8 @@ class LSTMDecoder(nn.Module):
         self.dropout_layer = nn.Dropout(dropout)
 
         logger.info(
-            f"Initialized LSTM decoder with vocab size: {vocab_size}, hidden dim: {hidden_dim}"
+            f"Initialized LSTM decoder with vocab size: {vocab_size}, hidden dim: {hidden_dim}, "
+            f"embedding dim: {embedding_dim}, attention: {attention}"
         )
 
     def forward(

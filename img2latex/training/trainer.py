@@ -261,7 +261,7 @@ class Trainer:
 
         # Initialize epoch metrics
         epoch_loss = 0.0
-        epoch_acc = 0.0
+        epoch_correct = 0.0
         epoch_tokens = 0
         epoch_samples = 0
 
@@ -351,7 +351,9 @@ class Trainer:
 
             # Update running metrics
             epoch_loss += loss.item() * batch_size
-            epoch_acc += batch_acc
+            epoch_correct += (
+                batch_acc  # batch_acc is already the count of correct tokens
+            )
             epoch_tokens += batch_tokens
             epoch_samples += batch_size
 
@@ -365,7 +367,7 @@ class Trainer:
             ):
                 metrics = {
                     "train_loss": epoch_loss / epoch_samples,
-                    "train_acc": epoch_acc / epoch_tokens,
+                    "train_acc": epoch_correct / epoch_tokens,
                     "epoch": self.current_epoch,
                     "step": self.global_step,
                 }
@@ -389,7 +391,7 @@ class Trainer:
         # Calculate epoch metrics
         epoch_metrics = {
             "train_loss": epoch_loss / epoch_samples,
-            "train_acc": epoch_acc / epoch_tokens if epoch_tokens > 0 else 0,
+            "train_acc": epoch_correct / epoch_tokens if epoch_tokens > 0 else 0,
             "train_samples": epoch_samples,
             "epoch": self.current_epoch,
             "step": self.global_step,
@@ -433,7 +435,7 @@ class Trainer:
 
         # Initialize validation metrics
         val_loss = 0.0
-        val_acc = 0.0
+        val_correct = 0.0
         val_tokens = 0
         val_samples = 0
 
@@ -471,7 +473,7 @@ class Trainer:
                 )
 
                 val_loss += loss.item() * batch_size
-                val_acc += batch_acc
+                val_correct += batch_acc
                 val_tokens += batch_tokens
                 val_samples += batch_size
 
@@ -530,11 +532,17 @@ class Trainer:
         # Calculate overall validation metrics
         val_metrics = {
             "val_loss": val_loss / val_samples,
-            "val_acc": val_acc / val_tokens if val_tokens > 0 else 0,
+            "val_acc": val_correct / val_tokens if val_tokens > 0 else 0,
             "val_samples": val_samples,
             "epoch": self.current_epoch,
             "step": self.global_step,
         }
+
+        # Debug logging for accuracy calculation
+        logger.debug(
+            f"Validation accuracy details: correct_tokens={val_correct}, "
+            f"total_tokens={val_tokens}, ratio={val_metrics['val_acc']:.6f}"
+        )
 
         # Compute additional metrics if predictions were collected
         if all_predictions and all_targets:

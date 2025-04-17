@@ -867,5 +867,18 @@
       "resnet_lstm",
       "lr_0.001"
     ]
+  },
+  "img2latex_v5": {
+    "config_path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v5/config.yaml",
+    "creation_time": "2025-04-17 03:34:21",
+    "description": "Image-to-LaTeX model: resnet_lstm with 1024 embedding dim, 1024 hidden dim. Training with lr=0.001, batch_size=128, max_epochs=30",
+    "last_updated": "2025-04-17 09:10:24",
+    "metrics": {},
+    "path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v5",
+    "status": "completed",
+    "tags": [
+      "resnet_lstm",
+      "lr_0.001"
+    ]
   }
 }

@@ -164,6 +164,17 @@ class PathManager:
         """
         log_dir = self.get_experiment_dir(experiment_name) / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Check if directory is writable
+        try:
+            test_file = log_dir / "write_test.txt"
+            with open(test_file, "w") as f:
+                f.write("Test write permissions")
+            test_file.unlink()  # Remove the test file
+            print(f"Log directory {log_dir} is writable")
+        except Exception as e:
+            print(f"Warning: Log directory {log_dir} might not be writable: {e}")
+
         return log_dir
 
     def get_metrics_dir(self, experiment_name: str) -> Path:

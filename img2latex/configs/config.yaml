@@ -45,7 +45,7 @@ model:
   embedding_dim: 2048
   decoder:
     hidden_dim: 2048
-    lstm_layers: 2
+    lstm_layers: 4
     dropout: 0.1
     attention: true
 
