@@ -22,7 +22,7 @@ data:
 
 # Model settings
 model:
-  name: "resnet_lstm"  # Options: "cnn_lstm", "resnet_lstm"
+  name: "resnet_lstPleam"  # Options: "cnn_lstm", "resnet_lstm"
   # Encoder settings
   encoder:
     # CNN encoder settings (used when model.name = "cnn_lstm")
@@ -40,13 +40,13 @@ model:
       img_width: 800
       channels: 3
       model_name: "resnet50"  # Options: "resnet18", "resnet34", "resnet50", "resnet101", "resnet152"
-      freeze_backbone: false  # Unfreeze backbone for fine-tuning
+      freeze_backbone: true
   # Embedding and decoder settings
   embedding_dim: 1024
   decoder:
     hidden_dim: 1024
     lstm_layers: 3
-    dropout: 0.3  # Increased dropout to reduce overfitting
+    dropout: 0.1
     attention: true
 
 # Training settings
@@ -72,7 +72,7 @@ evaluation:
 # Logging settings
 
 inference:
-  beam_size: 5        # Default beam size (0 = greedy); small beam for better decoding
+  beam_size: 0        # Default beam size (0 = greedy)
   max_length: 141     # Default maximum output sequence length
   temperature: 1.0    # Softmax temperature for sampling
   top_k: 0            # Top-k sampling parameter

@@ -3,6 +3,7 @@ Training and validation logic for the image-to-LaTeX model.
 """
 
 import os
+import random
 from typing import Dict, Optional
 
 import torch
@@ -89,10 +90,16 @@ class Trainer:
         self.optimizer = optim.Adam(
             model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay
         )
+        # Create learning rate scheduler (ReduceLROnPlateau)
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer, mode="min", factor=0.5, patience=2, verbose=True
+        )
 
-        # Create loss function
+        # Create loss function with label smoothing
         self.criterion = nn.CrossEntropyLoss(
-            ignore_index=self.tokenizer.pad_token_id, reduction="mean"
+            ignore_index=self.tokenizer.pad_token_id,
+            reduction="mean",
+            label_smoothing=0.1,
         )
 
         # Other training parameters
@@ -443,6 +450,18 @@ class Trainer:
         all_predictions = []
         all_targets = []
 
+        # We'll sample a fraction of batches rather than just the first few
+        # Calculate a sampling rate to get approximately self.bleu_batches worth of data
+        total_batches = len(self.val_loader)
+        if total_batches > self.bleu_batches:
+            sampling_rate = self.bleu_batches / total_batches
+        else:
+            sampling_rate = 1.0  # Sample all batches if we have fewer than bleu_batches
+
+        logger.debug(
+            f"Validation sampling rate: {sampling_rate:.4f} (targeting ~{self.bleu_batches} batches)"
+        )
+
         # Create progress bar
         pbar = tqdm(
             self.val_loader,
@@ -477,8 +496,9 @@ class Trainer:
                 val_tokens += batch_tokens
                 val_samples += batch_size
 
-                # Store predictions and targets for first few batches
-                if batch_idx < self.bleu_batches:
+                # Store predictions and targets using a sampling strategy
+                # Either sample the first few batches or randomly sample throughout validation
+                if (batch_idx < self.bleu_batches) or (random.random() < sampling_rate):
                     # Get the predicted tokens
                     pred_tokens = torch.argmax(outputs, dim=-1).cpu().numpy()
                     true_tokens = targets.cpu().numpy()
@@ -523,7 +543,8 @@ class Trainer:
                 if batch_idx % 25 == 0 and batch_idx > 0:
                     # Show a sample prediction vs target
                     if len(all_predictions) > 0:
-                        idx = min(batch_idx, len(all_predictions) - 1)
+                        # Use a random index instead of batch_idx to show different samples
+                        idx = random.randint(0, len(all_predictions) - 1)
                         pred_text = self.tokenizer.decode(all_predictions[idx])
                         true_text = self.tokenizer.decode(all_targets[idx])
                         logger.info(f"Sample prediction: {pred_text}")
@@ -546,6 +567,11 @@ class Trainer:
 
         # Compute additional metrics if predictions were collected
         if all_predictions and all_targets:
+            # Log the number of samples collected for metrics
+            logger.info(
+                f"Collected {len(all_predictions)} samples for BLEU and other metrics"
+            )
+
             # Calculate enhanced metrics (e.g., BLEU)
             use_detailed_metrics = (
                 self.current_epoch % detailed_eval_frequency == 0
@@ -638,6 +664,11 @@ class Trainer:
 
                 # Validate
                 val_metrics = self.validate()
+                # Step LR scheduler based on validation loss
+                try:
+                    self.scheduler.step(val_metrics.get("val_loss", float('inf')))
+                except Exception:
+                    logger.warning("LR scheduler step failed; skipping scheduler update.")
 
                 # Explicit cache clearing after validation
                 if self.device.type == "mps":
