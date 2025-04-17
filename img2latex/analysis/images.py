@@ -468,10 +468,10 @@ def analyze(
     cfg = load_config(config_path)
 
     # Use config for image_folder if not specified
-    if image_folder is None:
-        data_dir = cfg["data"]["data_dir"]
-        img_dir = cfg["data"]["img_dir"]
-        image_folder = os.path.join(data_dir, img_dir)
+
+    data_dir = cfg["data"]["data_dir"]
+    img_dir = cfg["data"]["img_dir"]
+    image_folder = os.path.join(data_dir, img_dir)
 
     # Setup output directory
     output_path = ensure_output_dir(output_dir, "images")

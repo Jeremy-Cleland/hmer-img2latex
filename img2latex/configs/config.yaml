@@ -19,7 +19,7 @@ model:
   encoder:
     # CNN encoder settings (used when model.name = "cnn_lstm")
     cnn:
-      img_height: 64
+      img_height: 128
       img_width: 800
       channels: 1
       conv_filters: [32, 64, 128]

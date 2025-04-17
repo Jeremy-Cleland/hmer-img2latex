@@ -571,70 +571,284 @@
   },
   "img2latex_v3": {
     "config_path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v3/config.yaml",
-    "creation_time": "2025-04-16 17:48:52",
+    "creation_time": "2025-04-16 18:21:12",
     "description": "Image-to-LaTeX model: resnet_lstm with 256 embedding dim, 256 hidden dim. Training with lr=0.001, batch_size=128, max_epochs=100",
-    "last_updated": "2025-04-16 18:02:33",
+    "last_updated": "2025-04-16 20:21:28",
     "metrics": {
       "steps": {
         "1": {
           "epoch": 1,
           "step": 295,
-          "train_acc": 0.4108221361206582,
-          "train_loss": 2.870228469678232,
-          "val_acc": 0.48211666803987807,
-          "val_loss": 2.380621630715355
+          "train_acc": 0.4107410041154382,
+          "train_loss": 2.870685489091395,
+          "val_acc": 0.4817809178544945,
+          "val_bleu": 0.06943355880113808,
+          "val_levenshtein": 0.2209771490648104,
+          "val_loss": 2.380616854197093
+        },
+        "10": {
+          "epoch": 10,
+          "step": 2950,
+          "train_acc": 0.5556579345951926,
+          "train_loss": 1.90874498853807,
+          "val_acc": 0.561913982038395,
+          "val_bleu": 0.11986940421345701,
+          "val_levenshtein": 0.25480744854148596,
+          "val_loss": 1.8751783284377597
+        },
+        "11": {
+          "epoch": 11,
+          "step": 3245,
+          "train_acc": 0.5576818678472254,
+          "train_loss": 1.8964156132605892,
+          "val_acc": 0.5618789651478948,
+          "val_bleu": 0.12319319314651475,
+          "val_levenshtein": 0.25845842563562454,
+          "val_loss": 1.8746249346180486
+        },
+        "12": {
+          "epoch": 12,
+          "step": 3540,
+          "train_acc": 0.5593684022786831,
+          "train_loss": 1.8862257361530823,
+          "val_acc": 0.5626637554585153,
+          "val_bleu": 0.12265383107576908,
+          "val_levenshtein": 0.25617005543445687,
+          "val_loss": 1.8589668412362375
+        },
+        "13": {
+          "epoch": 13,
+          "step": 3835,
+          "train_acc": 0.5609239303561029,
+          "train_loss": 1.877886815175627,
+          "val_acc": 0.5686269259289775,
+          "val_bleu": 0.12468451384044958,
+          "val_levenshtein": 0.25848060280816154,
+          "val_loss": 1.8335246444745446
+        },
+        "14": {
+          "epoch": 14,
+          "step": 4130,
+          "train_acc": 0.562208252297093,
+          "train_loss": 1.8695671484233611,
+          "val_acc": 0.5702747795995715,
+          "val_bleu": 0.1262939208419381,
+          "val_levenshtein": 0.259631283232244,
+          "val_loss": 1.828028661917045
+        },
+        "15": {
+          "epoch": 15,
+          "step": 4425,
+          "train_acc": 0.563253545100891,
+          "train_loss": 1.8636963321124544,
+          "val_acc": 0.5722027683941666,
+          "val_bleu": 0.12720227864314979,
+          "val_levenshtein": 0.2604922744792089,
+          "val_loss": 1.8224660227090796
+        },
+        "16": {
+          "epoch": 16,
+          "step": 4720,
+          "train_acc": 0.5643404381679887,
+          "train_loss": 1.8568403282311223,
+          "val_acc": 0.5686825409903601,
+          "val_bleu": 0.12705237153901847,
+          "val_levenshtein": 0.2598162103837701,
+          "val_loss": 1.8364158136442998
+        },
+        "17": {
+          "epoch": 17,
+          "step": 5015,
+          "train_acc": 0.565547765146518,
+          "train_loss": 1.8502415621442994,
+          "val_acc": 0.5718217022328417,
+          "val_bleu": 0.12680663527662278,
+          "val_levenshtein": 0.25997951714358297,
+          "val_loss": 1.815738298160913
+        },
+        "18": {
+          "epoch": 18,
+          "step": 5310,
+          "train_acc": 0.5662165870592383,
+          "train_loss": 1.8449508394255902,
+          "val_acc": 0.5719391118068715,
+          "val_bleu": 0.12857843144789807,
+          "val_levenshtein": 0.2607249180743164,
+          "val_loss": 1.8139267730598951
+        },
+        "19": {
+          "epoch": 19,
+          "step": 5605,
+          "train_acc": 0.566649827370399,
+          "train_loss": 1.8429248752438796,
+          "val_acc": 0.5726106121776386,
+          "val_bleu": 0.13067098074546907,
+          "val_levenshtein": 0.26029159089873755,
+          "val_loss": 1.8061173566638213
         },
         "2": {
           "epoch": 2,
           "step": 590,
-          "train_acc": 0.4982235998063864,
-          "train_loss": 2.2844902528397313,
-          "val_acc": 0.5173930954931202,
-          "val_loss": 2.1570183691870213
+          "train_acc": 0.4979027491568477,
+          "train_loss": 2.286718433364924,
+          "val_acc": 0.5172077119551783,
+          "val_bleu": 0.09383304914745247,
+          "val_levenshtein": 0.23528464560691537,
+          "val_loss": 2.1587390434784703
+        },
+        "20": {
+          "epoch": 20,
+          "step": 5900,
+          "train_acc": 0.5680088459167618,
+          "train_loss": 1.8350824033394482,
+          "val_acc": 0.5749649831094998,
+          "val_bleu": 0.1319371533793485,
+          "val_levenshtein": 0.26152056602726403,
+          "val_loss": 1.7988670310096786
+        },
+        "21": {
+          "epoch": 21,
+          "step": 6195,
+          "train_acc": 0.568066994351098,
+          "train_loss": 1.8347688058094898,
+          "val_acc": 0.5738320837109665,
+          "val_bleu": 0.12945058851626895,
+          "val_levenshtein": 0.2603022884709557,
+          "val_loss": 1.8022915339384455
+        },
+        "22": {
+          "epoch": 22,
+          "step": 6490,
+          "train_acc": 0.5694195774976132,
+          "train_loss": 1.8275334371787217,
+          "val_acc": 0.5744026530444096,
+          "val_bleu": 0.128856994943602,
+          "val_levenshtein": 0.26001403076116236,
+          "val_loss": 1.8010593653864615
+        },
+        "23": {
+          "epoch": 23,
+          "step": 6785,
+          "train_acc": 0.5699776185986732,
+          "train_loss": 1.823231741342383,
+          "val_acc": 0.5771957650160666,
+          "val_bleu": 0.13003075372572886,
+          "val_levenshtein": 0.26158316113752245,
+          "val_loss": 1.7877880568430273
+        },
+        "24": {
+          "epoch": 24,
+          "step": 7080,
+          "train_acc": 0.5706308116831926,
+          "train_loss": 1.819682347319206,
+          "val_acc": 0.576724066902859,
+          "val_bleu": 0.13067928561223502,
+          "val_levenshtein": 0.26130776185896615,
+          "val_loss": 1.7881254489276572
+        },
+        "25": {
+          "epoch": 25,
+          "step": 7375,
+          "train_acc": 0.5710904831008699,
+          "train_loss": 1.8172984074817786,
+          "val_acc": 0.577284337150861,
+          "val_bleu": 0.1328433614135321,
+          "val_levenshtein": 0.2618783256880025,
+          "val_loss": 1.7821237397735121
+        },
+        "26": {
+          "epoch": 26,
+          "step": 7670,
+          "train_acc": 0.5714947641127169,
+          "train_loss": 1.814012570569619,
+          "val_acc": 0.5783080662437176,
+          "val_bleu": 0.13209127669424392,
+          "val_levenshtein": 0.26212457483685225,
+          "val_loss": 1.7816787483017078
+        },
+        "27": {
+          "epoch": 27,
+          "step": 7965,
+          "train_acc": 0.5722587380088965,
+          "train_loss": 1.8105782902403078,
+          "val_acc": 0.5763821372662108,
+          "val_bleu": 0.13274708992195544,
+          "val_levenshtein": 0.26222128848513204,
+          "val_loss": 1.7843558183850068
         },
         "3": {
           "epoch": 3,
           "step": 885,
-          "train_acc": 0.5188109035898959,
-          "train_loss": 2.146025720109816,
-          "val_acc": 0.5331960121941172,
-          "val_loss": 2.063384873152064
+          "train_acc": 0.5185247581323918,
+          "train_loss": 2.1481244177614007,
+          "val_acc": 0.5318921479772596,
+          "val_bleu": 0.10239467894490184,
+          "val_levenshtein": 0.24183516364747928,
+          "val_loss": 2.0602857327090938
+        },
+        "4": {
+          "epoch": 4,
+          "step": 1180,
+          "train_acc": 0.5308607301328864,
+          "train_loss": 2.068824692352077,
+          "val_acc": 0.5398677597429349,
+          "val_bleu": 0.1074516537417477,
+          "val_levenshtein": 0.2474383489959445,
+          "val_loss": 2.0134648335592438
+        },
+        "5": {
+          "epoch": 5,
+          "step": 1475,
+          "train_acc": 0.5384827717451012,
+          "train_loss": 2.0191773430068247,
+          "val_acc": 0.5478145340693746,
+          "val_bleu": 0.11254703313028021,
+          "val_levenshtein": 0.2496339736505115,
+          "val_loss": 1.9652107989061691
+        },
+        "6": {
+          "epoch": 6,
+          "step": 1770,
+          "train_acc": 0.5441001863048256,
+          "train_loss": 1.9823869967816954,
+          "val_acc": 0.553108263986158,
+          "val_bleu": 0.11509794412769259,
+          "val_levenshtein": 0.25140414518145604,
+          "val_loss": 1.9319194194378961
+        },
+        "7": {
+          "epoch": 7,
+          "step": 2065,
+          "train_acc": 0.5478285811736054,
+          "train_loss": 1.9575183286828401,
+          "val_acc": 0.5579076378017632,
+          "val_bleu": 0.11645909279213411,
+          "val_levenshtein": 0.25343742687892074,
+          "val_loss": 1.905793549253949
+        },
+        "8": {
+          "epoch": 8,
+          "step": 2360,
+          "train_acc": 0.5510621397612558,
+          "train_loss": 1.9371488370534313,
+          "val_acc": 0.5587047870149131,
+          "val_bleu": 0.1202438752050283,
+          "val_levenshtein": 0.2539664510364346,
+          "val_loss": 1.8968321896510882
+        },
+        "9": {
+          "epoch": 9,
+          "step": 2655,
+          "train_acc": 0.5539422110287124,
+          "train_loss": 1.9202021786969432,
+          "val_acc": 0.5612898574606575,
+          "val_bleu": 0.12122708216070639,
+          "val_levenshtein": 0.2557460489855524,
+          "val_loss": 1.876403668675941
         }
       }
     },
     "path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v3",
-    "status": "training",
-    "tags": [
-      "resnet_lstm",
-      "lr_0.001"
-    ]
-  },
-  "img2latex_v4": {
-    "config_path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v4/config.yaml",
-    "creation_time": "2025-04-16 18:07:06",
-    "description": "Image-to-LaTeX model: resnet_lstm with 256 embedding dim, 256 hidden dim. Training with lr=0.001, batch_size=128, max_epochs=100",
-    "last_updated": "2025-04-16 18:16:04",
-    "metrics": {
-      "steps": {
-        "1": {
-          "epoch": 1,
-          "step": 295,
-          "train_acc": 0.41121837288269597,
-          "train_loss": 2.8685598557813345,
-          "val_acc": 0.48212078767405453,
-          "val_loss": 2.3823065226793005
-        },
-        "2": {
-          "epoch": 2,
-          "step": 590,
-          "train_acc": 0.4977377271179016,
-          "train_loss": 2.28739804141508,
-          "val_acc": 0.5170449864052072,
-          "val_loss": 2.159344091836982
-        }
-      }
-    },
-    "path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v4",
     "status": "training",
     "tags": [
       "resnet_lstm",
