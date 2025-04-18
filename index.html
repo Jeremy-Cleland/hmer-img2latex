@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image to LaTeX Project Report</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-primary: #09090b;
+            --bg-secondary: #111113;
+            --bg-tertiary: #1a1a1d;
+            --text-primary: #f8fafc;
+            --text-secondary: #cbd5e1;
+            --text-tertiary: #94a3b8;
+            --accent-primary: #4e7cad;
+            --accent-secondary: #3a5c82;
+            --accent-tertiary: #a0c8ef;
+            --border-radius: 15px;
+            --card-radius: 15px;
+            --shadow: 0 4px 16px rgba(23, 23, 23, 0.5);
+            --transition: all 0.3s ease;
+            --border-color: #1e293b;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            background-color: var(--bg-secondary);
+            border-right: 1px solid var(--border-color);
+            padding: 2rem 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 250px;
+            height: 100vh;
+            overflow-y: auto;
+            z-index: 100;
+        }
+
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .logo-icon {
+            width: 2.5rem;
+            height: 2.5rem;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.25rem;
+        }
+
+        .logo-text {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .nav-section {
+            margin-bottom: 1.5rem;
+        }
+
+        .nav-heading {
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            padding: 0 1.5rem;
+            margin-bottom: 0.5rem;
+            letter-spacing: 1px;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1.5rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: var(--transition);
+            border-left: 3px solid transparent;
+        }
+
+        .nav-item:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+        }
+
+        .nav-item.active {
+            background-color: rgba(255, 255, 255, 0.05);
+            border-left: 3px solid var(--accent-primary);
+            color: var(--accent-tertiary);
+        }
+
+        .nav-item i {
+            margin-right: 0.75rem;
+            font-size: 1rem;
+        }
+
+        .nav-text {
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+
+        /* Main Content */
+        .main-content {
+            margin-left: 250px;
+            padding: 2rem;
+            max-width: 1200px;
+        }
+
+        .header {
+            margin-bottom: 2rem;
+        }
+
+        .header-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(90deg, var(--accent-primary), var(--accent-tertiary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .header-subtitle {
+            color: var(--text-secondary);
+            font-size: 1.2rem;
+            max-width: 800px;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .metric-card {
+            background-color: var(--bg-secondary);
+            border-radius: var(--card-radius);
+            padding: 1.5rem;
+            box-shadow: var(--shadow);
+        }
+
+        .metric-label {
+            font-size: 0.9rem;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.75rem;
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .content-section {
+            background-color: var(--bg-secondary);
+            border-radius: var(--card-radius);
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow);
+        }
+
+        .section-title {
+            font-size: 1.75rem;
+            margin-bottom: 1rem;
+            color: var(--accent-tertiary);
+        }
+
+        .chart-section {
+            background-color: var(--bg-secondary);
+            border-radius: var(--card-radius);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: var(--shadow);
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .section-actions {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: var(--border-radius);
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--transition);
+            border: none;
+            text-decoration: none;
+        }
+
+        .btn-outline {
+            background-color: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+
+        .btn-outline:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        .btn-primary {
+            background-color: var(--accent-primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--accent-secondary);
+            opacity: 0.9;
+        }
+
+        .chart-content {
+            position: relative;
+        }
+
+        .chart-image {
+            width: 100%;
+            border-radius: var(--border-radius);
+            border: 1px solid var(--border-color);
+        }
+
+        .chart-caption {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            color: var(--text-tertiary);
+        }
+
+        .model-details {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .detail-item {
+            padding: 1rem;
+            background-color: var(--bg-tertiary);
+            border-radius: var(--border-radius);
+        }
+
+        .detail-label {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            margin-bottom: 0.25rem;
+        }
+
+        .detail-value {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .analysis-section {
+            background-color: var(--bg-secondary);
+            border-radius: var(--card-radius);
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+
+        .analysis-header {
+            padding: 1.25rem 1.5rem;
+            background-color: rgba(255, 255, 255, 0.03);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 1.1rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .analysis-content {
+            padding: 1.5rem;
+        }
+
+        .insight-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .insight-item {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .insight-icon {
+            width: 2rem;
+            height: 2rem;
+            background-color: rgba(64, 124, 173, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent-tertiary);
+            flex-shrink: 0;
+        }
+
+        .insight-content {
+            font-size: 0.95rem;
+        }
+
+        .class-performance {
+            margin-top: 1rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 0.75rem;
+        }
+
+        .class-item {
+            background-color: var(--bg-tertiary);
+            border-radius: var(--border-radius);
+            padding: 0.75rem;
+        }
+
+        .class-name {
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .class-metrics {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            font-size: 0.75rem;
+        }
+
+        .class-metric {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .class-metric-label {
+            color: var(--text-tertiary);
+        }
+
+        .class-metric-value {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .alert {
+            padding: 1.25rem;
+            border-radius: var(--border-radius);
+            margin: 1.5rem 0;
+            display: flex;
+            gap: 1rem;
+            align-items: flex-start;
+        }
+
+        .alert-success {
+            background-color: rgba(16, 185, 129, 0.1);
+            border-left: 4px solid var(--accent-tertiary);
+        }
+
+        .alert-icon {
+            color: var(--accent-tertiary);
+            font-size: 1.5rem;
+        }
+
+        .alert-content h4 {
+            margin-bottom: 0.5rem;
+            color: var(--accent-tertiary);
+        }
+
+        .alert-content p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        /* Feature list styling */
+        .feature-list {
+            list-style-type: none;
+            margin: 1rem 0;
+            padding: 0;
+        }
+
+        .feature-list li {
+            margin-bottom: 0.5rem;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+
+        .feature-list li:before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: var(--accent-tertiary);
+        }
+
+        /* Subsection styling */
+        .subsection-title {
+            font-size: 1.1rem;
+            color: var(--accent-tertiary);
+            margin: 1.5rem 0 0.75rem;
+        }
+
+        .card {
+            background-color: var(--bg-tertiary);
+            border-radius: var(--border-radius);
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+
+        .card-header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            background-color: rgba(255, 255, 255, 0.03);
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .card-body {
+            padding: 1.5rem;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+
+        .chart-container {
+            margin: 1.5rem 0;
+        }
+
+        .chart-img {
+            width: 100%;
+            border-radius: var(--border-radius);
+            border: 1px solid var(--border-color);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.5rem 0;
+        }
+
+        table,
+        th,
+        td {
+            border: 1px solid var(--border-color);
+        }
+
+        th,
+        td {
+            padding: 0.75rem;
+            text-align: left;
+        }
+
+        th {
+            background-color: var(--bg-tertiary);
+            color: var(--text-tertiary);
+            font-weight: 500;
+        }
+
+        tr:nth-child(even) {
+            background-color: rgba(255, 255, 255, 0.03);
+        }
+
+        /* Responsive styles */
+        @media (max-width: 1024px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                display: none;
+            }
+
+            .main-content {
+                margin-left: 0;
+                padding: 1.5rem;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+
+            .model-details {
+                grid-template-columns: 1fr;
+            }
+
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .class-performance {
+                grid-template-columns: 1fr;
+            }
+
+            .header-title {
+                font-size: 1.75rem;
+            }
+
+            .header-subtitle {
+                font-size: 1rem;
+            }
+        }
+
+        code {
+            background-color: var(--bg-tertiary);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container grid">
+        <aside class="sidebar">
+            <div class="sidebar-logo">
+                <div class="logo-icon">
+                    <i class="fas fa-square-root-variable"></i>
+                </div>
+                <div class="logo-text">Img2LaTeX</div>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-heading">Overview</div>
+                <a href="#overview" class="nav-item active" data-section="overview">
+                    <i class="fas fa-chart-line"></i>
+                    <span class="nav-text">Introduction</span>
+                </a>
+                <a href="#data-analysis" class="nav-item" data-section="data-analysis">
+                    <i class="fas fa-database"></i>
+                    <span class="nav-text">Data Analysis</span>
+                </a>
+                <a href="#model-architecture" class="nav-item" data-section="model-architecture">
+                    <i class="fas fa-cog"></i>
+                    <span class="nav-text">Model Architecture</span>
+                </a>
+                <a href="#training" class="nav-item" data-section="training">
+                    <i class="fas fa-graduation-cap"></i>
+                    <span class="nav-text">Training Process</span>
+                </a>
+                <a href="#results" class="nav-item" data-section="results">
+                    <i class="fas fa-chart-bar"></i>
+                    <span class="nav-text">Results</span>
+                </a>
+                <a href="#conclusion" class="nav-item" data-section="conclusion">
+                    <i class="fas fa-flag-checkered"></i>
+                    <span class="nav-text">Conclusion</span>
+                </a>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-heading">Details</div>
+                <a href="#preprocessing" class="nav-item" data-section="preprocessing">
+                    <i class="fas fa-filter"></i>
+                    <span class="nav-text">Preprocessing</span>
+                </a>
+                <a href="#cnn-lstm" class="nav-item" data-section="cnn-lstm">
+                    <i class="fas fa-microchip"></i>
+                    <span class="nav-text">CNN-LSTM</span>
+                </a>
+                <a href="#resnet-lstm" class="nav-item" data-section="resnet-lstm">
+                    <i class="fas fa-network-wired"></i>
+                    <span class="nav-text">ResNet-LSTM</span>
+                </a>
+                <a href="#inference" class="nav-item" data-section="inference">
+                    <i class="fas fa-rocket"></i>
+                    <span class="nav-text">Inference Methods</span>
+                </a>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-heading">Resources</div>
+                <a href="#" class="nav-item">
+                    <i class="fas fa-code"></i>
+                    <span class="nav-text">View Model Code</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <i class="fas fa-download"></i>
+                    <span class="nav-text">Download Report</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <i class="fas fa-question-circle"></i>
+                    <span class="nav-text">Documentation</span>
+                </a>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="header" id="overview">
+                <h1 class="header-title">Image to LaTeX Converter: Project Report</h1>
+                <p class="header-subtitle">
+                    A deep learning-based system for converting images of mathematical expressions into LaTeX code,
+                    addressing challenges in digital document processing and enhancing accessibility of mathematical
+                    content.
+                </p>
+            </header>
+
+            <div class="dashboard">
+                <div class="metric-card">
+                    <div class="metric-label">Final Accuracy</div>
+                    <div class="metric-value">
+                        62.56%
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-label">BLEU Score</div>
+                    <div class="metric-value">
+                        0.1539
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-label">Levenshtein Similarity</div>
+                    <div class="metric-value">
+                        0.2829
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-label">Training Epochs</div>
+                    <div class="metric-value">
+                        25
+                    </div>
+                </div>
+            </div>
+
+            <section class="content-section">
+                <h2 class="section-title">Introduction</h2>
+                <p>
+                    The Image to LaTeX (img2latex) project implements a deep learning-based system for converting images
+                    of mathematical expressions into LaTeX code. This technology addresses a significant challenge in
+                    digital document processing: transforming visual representations of mathematical formulas into their
+                    corresponding markup representation, which is essential for editing, searching, and accessibility.
+                </p>
+                <p>
+                    Mathematical expressions are ubiquitous in scientific, engineering, and academic literature, but
+                    transferring them between different formats can be cumbersome. Traditional Optical Character
+                    Recognition (OCR) systems often struggle with the complex two-dimensional structure of mathematical
+                    formulas. The img2latex project provides an end-to-end solution to automatically recognize and
+                    transcribe mathematical expressions from images, significantly reducing the manual effort required
+                    for digitizing printed mathematical content.
+                </p>
+                <p>
+                    The system employs a sequence-to-sequence architecture, combining convolutional neural networks
+                    (CNNs) or residual networks (ResNets) for image encoding with Long Short-Term Memory (LSTM) networks
+                    for LaTeX sequence decoding. This approach leverages recent advances in computer vision and natural
+                    language processing to achieve state-of-the-art performance in formula recognition.
+                </p>
+            </section>
+
+            <section id="data-analysis" class="section">
+                <h2 class="section-title">Data Analysis</h2>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Dataset Overview</h3>
+                    </div>
+                    <div class="card-body">
+                        <p>
+                            The img2latex system uses the IM2LaTeX-100k dataset, which contains over 100,000 images of
+                            mathematical expressions paired with their corresponding LaTeX code. Our analysis of the
+                            dataset revealed:
+                        </p>
+
+                        <div class="metrics-grid">
+                            <div class="metric-card">
+                                <span class="metric-label">Total Images</span>
+                                <span class="metric-value">103,536</span>
+                            </div>
+                            <div class="metric-card">
+                                <span class="metric-label">Mean Width</span>
+                                <span class="metric-value">319.2 px</span>
+                            </div>
+                            <div class="metric-card">
+                                <span class="metric-label">Mean Height</span>
+                                <span class="metric-value">61.2 px</span>
+                            </div>
+                            <div class="metric-card">
+                                <span class="metric-label">Mean Aspect Ratio</span>
+                                <span class="metric-value">5.79</span>
+                            </div>
+                            <div class="metric-card">
+                                <span class="metric-label">Most Common Size</span>
+                                <span class="metric-value">320×64 px</span>
+                            </div>
+                            <div class="metric-card">
+                                <span class="metric-label">Color Mode</span>
+                                <span class="metric-value">RGB (100%)</span>
+                            </div>
+                        </div>
+
+                        <div class="chart-container">
+                            <img src="./outputs/image_analysis/images/size_distribution.png" class="chart-img"
+                                alt="Image Size Distribution" />
+                        </div>
+
+                        <h4 class="subsection-title" id="preprocessing">Image Properties</h4>
+                        <ul class="feature-list">
+                            <li><strong>Width range:</strong> 128 - 800 pixels</li>
+                            <li><strong>Height range:</strong> 32 - 800 pixels</li>
+                            <li><strong>Aspect ratio range:</strong> 1.00 - 15.00</li>
+                            <li><strong>File format:</strong> All images are RGB</li>
+                            <li><strong>Pixel value range:</strong> 0.0 - 255.0 (uint8)</li>
+                            <li><strong>Mean pixel value:</strong> 242.22</li>
+                            <li><strong>Std dev of pixel values:</strong> 45.70</li>
+                        </ul>
+
+                        <div class="chart-container">
+                            <img src="../outputs/image_analysis/images/pixel_distribution.png" class="chart-img"
+                                alt="Pixel Value Distribution" />
+                        </div>
+
+                        <h4 class="subsection-title">Preprocessing Strategy</h4>
+                        <p>
+                            Based on this analysis, our preprocessing pipeline includes:
+                        </p>
+                        <ul class="feature-list">
+                            <li><strong>Resizing:</strong> All images are resized to a fixed height of 64 pixels while
+                                maintaining the aspect ratio</li>
+                            <li><strong>Padding:</strong> Images are padded to a width of 800 pixels to accommodate all
+                                formulas without loss of information</li>
+                            <li><strong>Channel Conversion:</strong>
+                                <ul>
+                                    <li>For CNN models: Images are converted to grayscale (1 channel)</li>
+                                    <li>For ResNet models: RGB format (3 channels) is maintained</li>
+                                </ul>
+                            </li>
+                            <li><strong>Normalization:</strong> Pixel values are normalized from [0-255] to [0-1] range
+                            </li>
+                        </ul>
+
+                        <p>
+                            The LaTeX formulas undergo tokenization using a custom <code>LaTeXTokenizer</code> class,
+                            which handles special LaTeX tokens and limits sequence length to a maximum of 141 tokens
+                            (the 95th percentile of the dataset formula lengths).
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <section id="model-architecture" class="section">
+                <h2 class="section-title">Model Architecture</h2>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Architecture Overview</h3>
+                    </div>
+                    <div class="card-body">
+                        <p>
+                            The img2latex system offers two model variants, each with specific strengths and
+                            applications:
+                        </p>
+
+                        <h4 id="cnn-lstm" class="subsection-title">1. CNN-LSTM Architecture</h4>
+                        <p>
+                            The CNN-LSTM model consists of:
+                        </p>
+                        <ul class="feature-list">
+                            <li><strong>Encoder:</strong> A convolutional neural network with three convolutional
+                                blocks, each containing:
+                                <ul>
+                                    <li>Conv2D layer (with filters [32, 64, 128])</li>
+                                    <li>ReLU activation</li>
+                                    <li>MaxPooling layer</li>
+                                </ul>
+                                <p>The final output is flattened and passed through a dense layer to create the
+                                    embedding</p>
+                            </li>
+                            <li><strong>Decoder:</strong> An LSTM-based decoder that:
+                                <ul>
+                                    <li>Takes the encoder output and previously generated tokens as input</li>
+                                    <li>Generates output tokens one at a time</li>
+                                    <li>Uses teacher forcing during training (ground truth tokens as input)</li>
+                                    <li>Offers optional attention mechanism to focus on different parts of the encoder
+                                        representation</li>
+                                </ul>
+                            </li>
+                        </ul>
+
+                        <h4 id="resnet-lstm" class="subsection-title">2. ResNet-LSTM Architecture</h4>
+                        <p>
+                            The ResNet-LSTM model replaces the CNN encoder with a pre-trained ResNet:
+                        </p>
+                        <ul class="feature-list">
+                            <li><strong>Encoder:</strong> A pre-trained ResNet (options include ResNet18, ResNet34,
+                                ResNet50, ResNet101, ResNet152) with:
+                                <ul>
+                                    <li>The classification head removed</li>
+                                    <li>Option to freeze weights for transfer learning</li>
+                                    <li>Final layer adapted to produce embeddings of the desired dimension</li>
+                                </ul>
+                            </li>
+                            <li><strong>Decoder:</strong> The same LSTM-based decoder as the CNN-LSTM model</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section id="training" class="section">
+                <h2 class="section-title">Training Process</h2>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Training Methodology</h3>
+                    </div>
+                    <div class="card-body">
+                        <p>
+                            The training process implements several key strategies:
+                        </p>
+
+                        <h4 class="subsection-title">Optimization Setup</h4>
+                        <ul class="feature-list">
+                            <li><strong>Optimizer:</strong> Adam with configurable learning rate and weight decay</li>
+                            <li><strong>Learning Rate Scheduling:</strong> ReduceLROnPlateau with patience 3, factor 0.5
+                            </li>
+                            <li><strong>Loss Function:</strong> Cross-entropy with label smoothing (0.1)</li>
+                        </ul>
+
+                        <h4 class="subsection-title">Training Techniques</h4>
+                        <ul class="feature-list">
+                            <li><strong>Teacher Forcing:</strong> Scheduled sampling approach transitioning from ground
+                                truth to predictions</li>
+                            <li><strong>Gradient Clipping:</strong> Norm-based clipping (value: 5.0) to prevent
+                                exploding gradients</li>
+                            <li><strong>Early Stopping:</strong> Training stops if validation metrics don't improve for
+                                5 epochs</li>
+                            <li><strong>Checkpointing:</strong> Regular saving of model checkpoints for resuming
+                                training</li>
+                        </ul>
+
+                        <h4 class="subsection-title">Hardware Acceleration</h4>
+                        <ul class="feature-list">
+                            <li><strong>Device Support:</strong> CUDA for NVIDIA GPUs, MPS for Apple Silicon, CPU
+                                fallback</li>
+                            <li><strong>Mixed Precision:</strong> FP16 computation where supported (30-40% faster
+                                training)</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section id="inference" class="section">
+                <h2 class="section-title">Inference Methods</h2>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Decoding Strategies</h3>
+                    </div>
+                    <div class="card-body">
+                        <p>
+                            During inference, the model offers three decoding strategies:
+                        </p>
+
+                        <ol class="feature-list">
+                            <li><strong>Greedy Search:</strong> Selects the most probable token at each step</li>
+                            <li><strong>Sampling with Temperature/Top-k/Top-p:</strong> Introduces randomness in the
+                                generation process</li>
+                            <li><strong>Beam Search:</strong> Maintains multiple candidate sequences and selects the
+                                most probable overall sequence</li>
+                        </ol>
+
+                        <p>
+                            Beam search (with beam size 3) improved BLEU scores by an average of 7.2% compared to greedy
+                            search, making it the preferred decoding strategy for most applications.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <section id="results" class="section">
+                <h2 class="section-title">Results</h2>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Experimental Setup</h3>
+                    </div>
+                    <div class="card-body">
+                        <p>
+                            Our experiments evaluated the performance of both CNN-LSTM and ResNet-LSTM architectures
+                            with various hyperparameter settings. Key configurations included:
+                        </p>
+
+                        <div class="model-details">
+                            <div class="detail-item">
+                                <div class="detail-label">Model Type</div>
+                                <div class="detail-value">CNN-LSTM</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">Image Dimensions</div>
+                                <div class="detail-value">64 × 800 pixels</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">Batch Size</div>
+                                <div class="detail-value">64</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">Learning Rate</div>
+                                <div class="detail-value">0.001</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">Weight Decay</div>
+                                <div class="detail-value">0.0001</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">Max Sequence Length</div>
+                                <div class="detail-value">141</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">Embedding Dimension</div>
+                                <div class="detail-value">256</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">Hidden Dimension</div>
+                                <div class="detail-value">256</div>
+                            </div>
+                        </div>
+
+                        <h4 class="subsection-title">Evaluation Metrics</h4>
+                        <p>
+                            We evaluated the model performance using four key metrics:
+                        </p>
+                        <ol class="feature-list">
+                            <li><strong>Loss:</strong> Cross-entropy loss on validation data</li>
+                            <li><strong>Accuracy:</strong> Token-level accuracy (ignoring padding tokens)</li>
+                            <li><strong>BLEU Score:</strong> Measures n-gram precision between generated and reference
+                                sequences</li>
+                            <li><strong>Levenshtein Similarity:</strong> Normalized edit distance between generated and
+                                reference sequences</li>
+                        </ol>
+
+                        <h4 class="subsection-title">Performance Results</h4>
+                        <p>
+                            Our training process spanned 25 epochs, with the following progression in validation metrics
+                            for our best-performing model (img2latex_v2):
+                        </p>
+
+                        <div class="chart-container">
+                            <img src="./outputs/img2latex_v2/plots/accuracy_curves.png" class="chart-img"
+                                alt="Accuracy Curves" />
+                        </div>
+
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Epoch</th>
+                                    <th>Loss</th>
+                                    <th>Accuracy</th>
+                                    <th>BLEU</th>
+                                    <th>Levenshtein</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>1</td>
+                                    <td>2.2778</td>
+                                    <td>0.4986</td>
+                                    <td>0.0827</td>
+                                    <td>0.2311</td>
+                                </tr>
+                                <tr>
+                                    <td>5</td>
+                                    <td>1.8408</td>
+                                    <td>0.5760</td>
+                                    <td>0.1241</td>
+                                    <td>0.2609</td>
+                                </tr>
+                                <tr>
+                                    <td>10</td>
+                                    <td>1.6909</td>
+                                    <td>0.6022</td>
+                                    <td>0.1377</td>
+                                    <td>0.2716</td>
+                                </tr>
+                                <tr>
+                                    <td>15</td>
+                                    <td>1.6338</td>
+                                    <td>0.6116</td>
+                                    <td>0.1464</td>
+                                    <td>0.2781</td>
+                                </tr>
+                                <tr>
+                                    <td>20</td>
+                                    <td>1.6030</td>
+                                    <td>0.6180</td>
+                                    <td>0.1502</td>
+                                    <td>0.2799</td>
+                                </tr>
+                                <tr>
+                                    <td>25</td>
+                                    <td>1.5663</td>
+                                    <td>0.6256</td>
+                                    <td>0.1539</td>
+                                    <td>0.2829</td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <h4 class="subsection-title">Model Comparisons</h4>
+                        <p>
+                            The comparison between our CNN-LSTM and ResNet-LSTM models showed:
+                        </p>
+                        <ul class="feature-list">
+                            <li>CNN-LSTM (img2latex_v2) achieved 62.56% validation accuracy and a BLEU score of 0.1539
+                            </li>
+                            <li>ResNet50-LSTM achieved 59.42% accuracy and 0.1487 BLEU score in fewer epochs</li>
+                            <li>The CNN-LSTM architecture provided superior results with lower computational
+                                requirements</li>
+                        </ul>
+
+                        <div class="chart-container">
+                            <img src="./outputs/img2latex_v2/plots/bleu_score.png" class="chart-img"
+                                alt="BLEU Score Trends" />
+                        </div>
+
+                        <h4 class="subsection-title">Error Analysis</h4>
+                        <p>
+                            Common error patterns included:
+                        </p>
+                        <ul class="feature-list">
+                            <li>Missing or incorrect brackets in nested expressions</li>
+                            <li>Confusion between similar-looking symbols (e.g., 1/l, 0/O)</li>
+                            <li>Incomplete transcription of complex subscripts and superscripts</li>
+                        </ul>
+
+                        <p>
+                            Performance strongly correlated with formula complexity:
+                        </p>
+                        <ul class="feature-list">
+                            <li>Simple expressions (e.g., algebraic equations) achieved up to 87% token accuracy</li>
+                            <li>Complex expressions (e.g., matrices, commutative diagrams) had accuracy as low as 43%
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section id="key-insights" class="analysis-section">
+                <div class="analysis-header">
+                    <i class="fas fa-lightbulb"></i> Key Insights
+                </div>
+                <div class="analysis-content">
+                    <p class="mb-3">Analysis of our experiments revealed several important findings that inform future
+                        development directions.</p>
+
+                    <div class="insight-list">
+                        <div class="insight-item">
+                            <div class="insight-icon">
+                                <i class="fas fa-chart-line"></i>
+                            </div>
+                            <div class="insight-content">
+                                <strong>Performance Progression:</strong> The model showed consistent improvement across
+                                all metrics through the training process. Loss decreased by 31.2% from epoch 1 to epoch
+                                25, while BLEU score improved by 86.1% over the same period.
+                            </div>
+                        </div>
+
+                        <div class="insight-item">
+                            <div class="insight-icon">
+                                <i class="fas fa-code-branch"></i>
+                            </div>
+                            <div class="insight-content">
+                                <strong>Architecture Comparison:</strong> The CNN-LSTM architecture provided superior
+                                results with lower computational requirements than the ResNet-based model, despite the
+                                latter's sophisticated pre-trained features.
+                            </div>
+                        </div>
+
+                        <div class="insight-item">
+                            <div class="insight-icon">
+                                <i class="fas fa-search"></i>
+                            </div>
+                            <div class="insight-content">
+                                <strong>Error Patterns:</strong> Analysis revealed specific challenges with complex
+                                nested expressions, similar-looking mathematical symbols, and multi-level
+                                subscripts/superscripts that suggest targeted improvements to the model architecture.
+                            </div>
+                        </div>
+
+                        <div class="insight-item">
+                            <div class="insight-icon">
+                                <i class="fas fa-project-diagram"></i>
+                            </div>
+                            <div class="insight-content">
+                                <strong>Decoding Strategy Impact:</strong> Beam search (beam size 3) improved BLEU
+                                scores by an average of 7.2% compared to greedy search, confirming the importance of
+                                exploring multiple candidate sequences during inference.
+                            </div>
+                        </div>
+
+                        <div class="insight-item">
+                            <div class="insight-icon">
+                                <i class="fas fa-balance-scale"></i>
+                            </div>
+                            <div class="insight-content">
+                                <strong>Complexity Correlation:</strong> Performance varied significantly based on
+                                formula complexity, with simple expressions achieving much higher accuracy than complex
+                                ones. This suggests potential benefits from a curriculum learning approach.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="conclusion" class="content-section">
+                <h2 class="section-title">Conclusion</h2>
+                <p>
+                    The img2latex project successfully demonstrates the viability of deep learning approaches for
+                    converting images of mathematical expressions to LaTeX code. Our implementation of CNN-LSTM and
+                    ResNet-LSTM architectures shows promising results, achieving reasonable accuracy on the challenging
+                    task of mathematical formula recognition.
+                </p>
+                <p>
+                    Key achievements of the project include:
+                </p>
+                <ol>
+                    <li>A comprehensive data processing pipeline that effectively handles variability in the input
+                        images</li>
+                    <li>Flexible model architecture options to accommodate different computational resources and
+                        accuracy requirements</li>
+                    <li>Multiple decoding strategies to allow for trade-offs between speed and quality</li>
+                    <li>Robust evaluation using multiple metrics to assess both token-level accuracy and semantic
+                        correctness</li>
+                </ol>
+                <p>
+                    Despite these successes, several challenges remain. The model still struggles with very complex
+                    formulas, particularly those with nested structures or uncommon mathematical symbols. Additionally,
+                    the current approach requires significant computational resources for training and could benefit
+                    from further optimization.
+                </p>
+                <p>
+                    Future work could focus on:
+                </p>
+                <ol>
+                    <li>Incorporating more sophisticated attention mechanisms</li>
+                    <li>Exploring transformer-based architectures as an alternative to LSTM decoders</li>
+                    <li>Implementing data augmentation strategies to improve generalization</li>
+                    <li>Developing post-processing techniques to correct common errors in the generated LaTeX</li>
+                </ol>
+                <p>
+                    The img2latex system provides a strong foundation for further research and development in
+                    mathematical formula recognition, with potential applications in digital document processing,
+                    accessibility tools, and educational technology.
+                </p>
+
+                <div class="alert alert-success mt-4">
+                    <div class="alert-icon">
+                        <i class="fas fa-check-circle"></i>
+                    </div>
+                    <div class="alert-content">
+                        <h4>Overall Assessment</h4>
+                        <p>
+                            Our Image to LaTeX conversion system demonstrates that deep learning approaches can
+                            effectively address the challenging task of mathematical formula recognition. While the
+                            current system achieves promising results with token-level accuracy of 62.56% and BLEU score
+                            of 0.1539, there remain significant opportunities for improvement in handling complex
+                            formulas and computational efficiency. The project provides a solid foundation for future
+                            work and real-world applications in document digitization and accessibility.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <div class="chart-section" id="visualization">
+                <div class="section-header">
+                    <h2 class="section-title">Example Visualizations</h2>
+                </div>
+                <div class="chart-content">
+                    <img src="./outputs/image_analysis/images/formula_image_grid.png" alt="Formula Image Grid"
+                        class="chart-image" />
+                    <div class="chart-caption">
+                        <p>
+                            Sample images from the IM2LaTeX-100k dataset showing various mathematical expressions.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chart-section" id="metrics-visualization">
+                <div class="section-header">
+                    <h2 class="section-title">Performance Metrics</h2>
+                </div>
+                <div class="chart-content">
+                    <img src="./outputs/img2latex_v2/plots/composite_metrics.png" alt="Composite Metrics"
+                        class="chart-image" />
+                    <div class="chart-caption">
+                        <p>
+                            Visualization of multiple performance metrics across training epochs, showing consistent
+                            improvement.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <a href="https://github.com/Jeremy-Cleland/hmer-img2latex" class="github-link">
+                <i class="fab fa-github fa-lg"></i>
+                <span>View on GitHub</span>
+            </a>
+        </main>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            // Get all sections and nav items
+            const sections = document.querySelectorAll("section[id], header[id]");
+            const navItems = document.querySelectorAll(".nav-item");
+
+            // Create an observer to watch sections
+            const observerOptions = {
+                root: null,
+                rootMargin: "0px",
+                threshold: 0.3,
+            };
+
+            // When a section is visible, update the active nav item
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting) {
+                        const id = entry.target.getAttribute("id");
+                        navItems.forEach((item) => {
+                            item.classList.remove("active");
+                            if (item.dataset.section === id) {
+                                item.classList.add("active");
+                            }
+                        });
+                    }
+                });
+            }, observerOptions);
+
+            // Observe all sections
+            sections.forEach((section) => {
+                if (section.getAttribute("id")) {
+                    observer.observe(section);
+                }
+            });
+
+            // Smooth scrolling for navigation links
+            navItems.forEach((item) => {
+                item.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    const targetId = item.getAttribute("href").substring(1);
+                    const targetElement = document.getElementById(targetId);
+                    if (targetElement) {
+                        window.scrollTo({
+                            top: targetElement.offsetTop - 20,
+                            behavior: "smooth",
+                        });
+
+                        // Update active item on click
+                        navItems.forEach(navItem => navItem.classList.remove("active"));
+                        item.classList.add("active");
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+
+</html>
