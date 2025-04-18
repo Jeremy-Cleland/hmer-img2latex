@@ -6,25 +6,139 @@
 
 ## Overview
 
-This project implements a deep learning-based tool for converting images of mathematical expressions into LaTeX code. It uses a sequence-to-sequence architecture with either a CNN or ResNet encoder combined with an LSTM decoder to generate LaTeX output from input images.
+The Image to LaTeX (img2latex) project implements a deep learning-based system for converting images of mathematical expressions into LaTeX code. This technology addresses a significant challenge in digital document processing: transforming visual representations of mathematical formulas into their corresponding markup representation, which is essential for editing, searching, and accessibility.
+
+Mathematical expressions are ubiquitous in scientific, engineering, and academic literature, but transferring them between different formats can be cumbersome. Traditional Optical Character Recognition (OCR) systems often struggle with the complex two-dimensional structure of mathematical formulas. The img2latex project provides an end-to-end solution to automatically recognize and transcribe mathematical expressions from images, significantly reducing the manual effort required for digitizing printed mathematical content.
+
+## Performance Metrics
+
+![Composite Metrics](./outputs/img2latex_v2/plots/composite_metrics.png)
+
+| Metric | Value |
+|--------|-------|
+| Final Accuracy | 62.56% |
+| BLEU Score | 0.1539 |
+| Levenshtein Similarity | 0.2829 |
+| Training Epochs | 25 |
 
 ## Features
 
-- Two model types:
-  - `cnn_lstm`: A CNN-based encoder with an LSTM decoder
-  - `resnet_lstm`: A ResNet-based encoder (pre-trained) with an LSTM decoder
-- Command-line interface for training, prediction, and evaluation
-- Support for Apple Silicon (M-series) through MPS acceleration
-- Optional beam search decoding for improved prediction quality
-- Evaluation using BLEU and Levenshtein distance metrics
-- Comprehensive metrics and analysis tools
+- Two model architectures:
+  - **CNN-LSTM**: A convolutional neural network encoder with an LSTM decoder
+  - **ResNet-LSTM**: A pre-trained ResNet encoder with an LSTM decoder
+- Multiple decoding strategies:
+  - Greedy search
+  - Beam search (with configurable beam size)
+  - Sampling with temperature/top-k/top-p
+- Comprehensive evaluation using multiple metrics:
+  - Token-level accuracy
+  - BLEU score
+  - Levenshtein similarity
+- Visualization and analysis tools
+- Support for Apple Silicon (MPS acceleration), CUDA, and CPU
+- Command-line interface for training, evaluation, and prediction
+
+## Dataset Analysis
+
+The project uses the IM2LaTeX-100k dataset, which contains over 100,000 images of mathematical expressions paired with their corresponding LaTeX code.
+
+![Size Distribution](./outputs/image_analysis/images/size_distribution.png)
+
+Key dataset statistics:
+- **Total Images**: 103,536
+- **Mean Width**: 319.2 px
+- **Mean Height**: 61.2 px
+- **Mean Aspect Ratio**: 5.79
+- **Most Common Size**: 320×64 px
+- **Color Mode**: RGB (100%)
+
+![Pixel Distribution](./outputs/image_analysis/images/pixel_distribution.png)
+
+Image properties:
+- **Width range**: 128 - 800 pixels
+- **Height range**: 32 - 800 pixels
+- **Aspect ratio range**: 1.00 - 15.00
+- **File format**: All images are RGB
+- **Pixel value range**: 0.0 - 255.0 (uint8)
+- **Mean pixel value**: 242.22
+- **Std dev of pixel values**: 45.70
+
+## Model Architecture
+
+### 1. CNN-LSTM Architecture
+
+The CNN-LSTM model consists of:
+- **Encoder**: A convolutional neural network with three convolutional blocks, each containing:
+  - Conv2D layer (with filters [32, 64, 128])
+  - ReLU activation
+  - MaxPooling layer
+  - The final output is flattened and passed through a dense layer to create the embedding
+- **Decoder**: An LSTM-based decoder that:
+  - Takes the encoder output and previously generated tokens as input
+  - Generates output tokens one at a time
+  - Uses teacher forcing during training (ground truth tokens as input)
+  - Offers optional attention mechanism to focus on different parts of the encoder representation
+
+### 2. ResNet-LSTM Architecture
+
+The ResNet-LSTM model replaces the CNN encoder with a pre-trained ResNet:
+- **Encoder**: A pre-trained ResNet (options include ResNet18, ResNet34, ResNet50, ResNet101, ResNet152) with:
+  - The classification head removed
+  - Option to freeze weights for transfer learning
+  - Final layer adapted to produce embeddings of the desired dimension
+- **Decoder**: The same LSTM-based decoder as the CNN-LSTM model
+
+## Training Process
+
+![Accuracy Curves](./outputs/img2latex_v2/plots/accuracy_curves.png)
+
+The training process implements several key strategies:
+
+### Optimization Setup
+- **Optimizer**: Adam with configurable learning rate and weight decay
+- **Learning Rate Scheduling**: ReduceLROnPlateau with patience 3, factor 0.5
+- **Loss Function**: Cross-entropy with label smoothing (0.1)
+
+### Training Techniques
+- **Teacher Forcing**: Scheduled sampling approach transitioning from ground truth to predictions
+- **Gradient Clipping**: Norm-based clipping (value: 5.0) to prevent exploding gradients
+- **Early Stopping**: Training stops if validation metrics don't improve for 5 epochs
+- **Checkpointing**: Regular saving of model checkpoints for resuming training
+
+### Hardware Acceleration
+- **Device Support**: CUDA for NVIDIA GPUs, MPS for Apple Silicon, CPU fallback
+- **Mixed Precision**: FP16 computation where supported (30-40% faster training)
+
+## Results
+
+![BLEU Score](./outputs/img2latex_v2/plots/bleu_score.png)
+
+Our training process spanned 25 epochs, with the following progression in validation metrics for our best-performing model:
+
+| Epoch | Loss   | Accuracy | BLEU   | Levenshtein |
+|-------|--------|----------|--------|-------------|
+| 1     | 2.2778 | 0.4986   | 0.0827 | 0.2311      |
+| 5     | 1.8408 | 0.5760   | 0.1241 | 0.2609      |
+| 10    | 1.6909 | 0.6022   | 0.1377 | 0.2716      |
+| 15    | 1.6338 | 0.6116   | 0.1464 | 0.2781      |
+| 20    | 1.6030 | 0.6180   | 0.1502 | 0.2799      |
+| 25    | 1.5663 | 0.6256   | 0.1539 | 0.2829      |
+
+The comparison between CNN-LSTM and ResNet-LSTM models showed:
+- CNN-LSTM achieved 62.56% validation accuracy and a BLEU score of 0.1539
+- ResNet50-LSTM achieved 59.42% accuracy and 0.1487 BLEU score in fewer epochs
+- The CNN-LSTM architecture provided superior results with lower computational requirements
+
+## Example Visualizations
+
+![Formula Image Grid](./outputs/image_analysis/images/formula_image_grid.png)
 
 ## Installation
 
 Clone the repository and install the package:
 
 ```bash
-git clone https://github.com/yourusername/hmer-im2latex.git
+git clone https://github.com/Jeremy-Cleland/hmer-img2latex.git
 cd hmer-im2latex
 pip install -e .
 ```
@@ -138,86 +252,7 @@ make clean-all
 make help
 ```
 
-For detailed information about the metrics system, see [README_METRICS.md](README_METRICS.md).
-
-## Dataset Analysis
-
-We conducted a comprehensive analysis of the 103,536 images in the dataset with the following findings:
-
-#### Image Size Statistics
-
-- **Width**: Range from 128 to 800 pixels (mean: 319.2px)
-- **Height**: Range from 32 to 800 pixels (mean: 61.2px)
-- **Aspect Ratio**: Range from 1.00 to 15.00 (mean: 5.79)
-- **Most Common Size**: 320x64 pixels (11,821 images)
-
-#### Color and Pixel Analysis
-
-- **Mode**: All images are RGB (3 channels)
-- **Data Type**: uint8 (0-255 range)
-- **Pixel Statistics**: Mean value = 241.51, Standard deviation = 46.84
-- **Background**: Predominantly white backgrounds
-
-#### Implementation Strategy
-
-Based on this analysis, our implementation:
-
-1. Resizes all images to a fixed height of 64px (maintaining aspect ratio)
-2. Pads width to 800px to accommodate all formulas without information loss
-3. Converts RGB to grayscale for CNN models (keeping RGB for ResNet models)
-4. Normalizes pixel values from [0-255] to [0-1] range
-
-## Configuration
-
-The `config.yaml` file contains settings for the model, training, and data. Key parameters include:
-
-- Model type (`cnn_lstm` or `resnet_lstm`)
-- Image dimensions:
-  - Height: 64 pixels (fixed)
-  - Width: 800 pixels (padded)
-  - Channels: 1 for CNN, 3 for ResNet
-- Maximum sequence length: 141 tokens (95th percentile of dataset formula lengths)
-- Embedding and hidden dimensions
-- Training parameters (learning rate, batch size, etc.)
-- Device selection (MPS, CUDA, or CPU)
-
-## Model Architecture
-
-The model consists of two main components:
-
-1. **Encoder**:
-   - CNN: Processes grayscale images with 3 convolutional blocks (Conv2D -> BatchNorm -> ReLU -> MaxPool)
-   - ResNet: Uses pre-trained ResNet50 (or variants) that processes RGB images
-
-2. **Decoder**:
-   - LSTM-based decoder with attention mechanism
-   - Teacher forcing during training
-   - Greedy or beam search decoding during inference
-
-## Preprocessing Pipeline
-
-Our image preprocessing pipeline includes:
-
-1. **Resizing**: Height fixed at 64px while maintaining the aspect ratio
-2. **Padding**: Width padded to 800px (right padding with white)
-3. **Channel Conversion**:
-   - CNN: RGB to grayscale (1 channel)
-   - ResNet: Keep as RGB (3 channels)
-4. **Normalization**:
-   - ToTensor(): Converts uint8 [0,255] to float [0,1]
-   - Normalize(): Standardizes using appropriate means and standard deviations
-5. **Data Augmentation** (training only):
-   - Small rotations
-   - Slight scaling
-   - Random crops with padding
-
-## Performance Optimizations
-
-The implementation includes several optimizations:
-
-1. **Batch Processing**: Efficient batch prediction for evaluation
-2. **Formula Caching**: Formulas are preloaded to eliminate repeated disk reads
-3. **Root Path Detection**: Robust directory structure detection for reliable execution
+For detailed information about the metrics system, see [README_METRICS.md](docs/README_METRICS.md).
 
 ## License
 
