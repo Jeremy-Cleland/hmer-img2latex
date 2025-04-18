@@ -11,7 +11,7 @@ Features:
 
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import psutil
 import torch
@@ -365,11 +365,12 @@ class Im2LatexDataset(Dataset):
 
 
 def create_data_loaders(
-    config: dict,
-    tokenizer: LaTeXTokenizer,
+    config: Optional[dict] = None,
+    tokenizer: Optional[LaTeXTokenizer] = None,
     max_samples: Optional[
         Dict[str, Optional[int]]
-    ] = None,  # Optional override for samples per split
+    ] = None,  # Optional override for samples per split or test convenience
+    **kwargs
 ) -> Dict[str, DataLoader]:
     """
     Create DataLoaders for training, validation, and testing.
@@ -382,11 +383,40 @@ def create_data_loaders(
     Returns:
         Dictionary with 'train', 'val', and 'test' DataLoaders
     """
-    # Get values from config
-    data_dir = config["data"]["data_dir"]
-    data_config = config["data"]
-    model_type = config["model"]["name"]
-    encoder_config = config["model"]["encoder"]
+    # Allow calling with keyword args in lieu of config (e.g., in tests)
+    # If config is not a dict or data_dir passed in kwargs, build minimal config
+    if (config is None or not isinstance(config, dict)) or "data_dir" in kwargs:
+        # Extract test-style args
+        data_dir_val = kwargs.get("data_dir")
+        if not data_dir_val or not tokenizer:
+            raise ValueError("When config is not provided, 'data_dir' and 'tokenizer' must be supplied")
+        # Allow common relative test dirs: if path doesn't exist, try last segment under cwd
+        from pathlib import Path as _Path
+        _p = _Path(data_dir_val)
+        if not _p.exists():
+            _alt = _Path.cwd() / _p.name
+            if _alt.exists():
+                data_dir_val = str(_alt)
+        # Build data sub-config
+        data_cfg: Dict[str, Any] = {"data_dir": data_dir_val}
+        # Optional overrides
+        for key in ("batch_size", "num_workers", "prefetch_factor", "log_frequency", "load_in_memory", "pin_memory", "persistent_workers", "eval_batch_size_multiplier", "max_eval_batch_size", "img_dir"):  # noqa: E501
+            if key in kwargs and kwargs[key] is not None:
+                data_cfg[key] = kwargs[key]
+        # Build model sub-config with defaults
+        model_cfg: Dict[str, Any] = {}
+        model_cfg["name"] = kwargs.get("model_name", "cnn_lstm")
+        # Encoder config default: simple CNN with specified channels
+        enc: Dict[str, Any] = {"channels": kwargs.get("channels", 1)}
+        model_cfg["encoder"] = {"cnn": enc}
+        # Assemble full config
+        config = {"data": data_cfg, "model": model_cfg}
+    # Unpack config values
+    data_config = config.get("data", {})
+    model_conf = config.get("model", {})
+    data_dir = data_config.get("data_dir")
+    model_type = model_conf.get("name", "cnn_lstm")
+    encoder_config = model_conf.get("encoder", {})
 
     # Extract required parameters with fallbacks
     batch_size = data_config.get("batch_size", 128)

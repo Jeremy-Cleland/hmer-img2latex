@@ -68,6 +68,7 @@ evaluation:
   bleu_n: 4  # n for BLEU-n score
   bleu_batches: 10        # Number of batches to compute BLEU on during validation
   enhanced_samples: 2     # Number of samples for enhanced metrics logging
+  save_basic_metrics: true  # Save basic metrics per epoch to metrics.json
 
 # Logging settings
 
@@ -82,6 +83,8 @@ logging:
   log_to_file: true
   log_file: "train.log"
   use_colors: true
+  # Evaluation metrics saving configuration
+  detailed_eval_frequency: 1  # Save enhanced metrics every epoch
 
 # Analysis settings
 analysis:

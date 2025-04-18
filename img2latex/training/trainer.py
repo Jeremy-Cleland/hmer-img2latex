@@ -3,6 +3,7 @@ Training and validation logic for the image-to-LaTeX model.
 """
 
 import os
+import json
 import random
 from typing import Dict, Optional
 
@@ -646,6 +647,21 @@ class Trainer:
                 f", Levenshtein: {val_metrics.get('val_levenshtein', 0):.4f}"
             )
 
+        # Save basic metrics to a JSON file if configured
+        if self.config.get("evaluation", {}).get("save_basic_metrics", False):
+            metrics_dir = experiment_registry.path_manager.get_metrics_dir(self.experiment_name)
+            metrics_path = os.path.join(str(metrics_dir), "metrics.json")
+            try:
+                with open(metrics_path, "r") as f:
+                    basic_metrics = json.load(f)
+            except Exception:
+                basic_metrics = {}
+            # Use 1-based epoch numbering
+            epoch_key = str(self.current_epoch + 1)
+            basic_metrics[epoch_key] = val_metrics
+            with open(metrics_path, "w") as f:
+                json.dump(basic_metrics, f, indent=2)
+            logger.info(f"Basic metrics saved to {metrics_path}")
         return val_metrics
 
     def train(self) -> Dict[str, float]:

@@ -13,8 +13,9 @@ def test_loader_performance(num_workers, max_samples=100, num_epochs=3):
     # Initialize tokenizer
     tokenizer = LaTeXTokenizer(max_sequence_length=141)
 
-    # Set paths and parameters
-    data_dir = "../data"
+    # Set paths and parameters (project data directory)
+    from pathlib import Path
+    data_dir = str(Path(__file__).resolve().parent.parent / "data")
     samples = {"train": max_samples, "val": 5, "test": 5}
 
     try:
