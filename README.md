@@ -1,5 +1,9 @@
 # Image to LaTeX Converter (img2latex)
 
+[![Deploy to GitHub Pages](https://github.com/Jeremy-Cleland/hmer-img2latex/actions/workflows/deploy.yml/badge.svg)](https://github.com/Jeremy-Cleland/hmer-img2latex/actions/workflows/deploy.yml)
+
+**View Project Website:** [https://jeremy-cleland.github.io/hmer-img2latex/](https://jeremy-cleland.github.io/hmer-img2latex/)
+
 ## Overview
 
 This project implements a deep learning-based tool for converting images of mathematical expressions into LaTeX code. It uses a sequence-to-sequence architecture with either a CNN or ResNet encoder combined with an LSTM decoder to generate LaTeX output from input images.
