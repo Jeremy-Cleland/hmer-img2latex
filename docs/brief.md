@@ -1,11 +1,12 @@
 
 
+
 ## Introduction
 
-Good afternoon, everyone. Thank you for joining my presentation on the **Image to LaTeX Converter** project. My name is Jeremy Cleland, and I’m a graduate student in Advanced AI at the University of Michigan–Dearborn. Today, I’ll walk you through the motivation behind this work, our overall approach, the experiments we conducted, and our concluding insights.
+Good afternoon, everyone. Thank you for joining my presentation on the **Image to LaTeX Converter** project. My name is Jeremy Cleland, and I’m a graduate student at the University of Michigan–Dearborn. Today, I’ll walk you through the motivation behind this work, our overall approach, the experiments I conducted, and my concluding insights.
 
 - **Motivation**  
-  Mathematical expressions appear everywhere in scientific, engineering, and academic documents. Yet converting those visual formulas into editable LaTeX code remains a laborious, error‑prone process. Traditional OCR systems excel at plain text but falter on the two‑dimensional structure of math. Our goal was to build an end‑to‑end, deep learning–based system that automatically transcribes math images into LaTeX markup, streamlining document digitization and improving accessibility.
+  Mathematical expressions appear everywhere in scientific, engineering, and academic documents. Yet converting those visual formulas into editable LaTeX code remains a laborious, error‑prone process. Traditional OCR systems excel at plain text but falter on the two‑dimensional structure of math. My goal was to build an end‑to‑end, deep learning–based system that automatically transcribes math images into LaTeX markup, streamlining digitizaling documents and improving accessibility.
 
 - **Contributions**  
   We designed two model variants—CNN‑LSTM and ResNet‑LSTM—that leverage modern computer vision and sequence modeling techniques. We developed a robust preprocessing pipeline, implemented advanced training strategies, and conducted a thorough evaluation on the IM2LaTeX‑100k dataset, achieving promising accuracy and BLEU scores.

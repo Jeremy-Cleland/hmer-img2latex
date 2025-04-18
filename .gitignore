@@ -92,3 +92,11 @@ CLAUDE.md
 
 
 /Users/jeremy/hmer-im2latex/docs/new_report.md
+
+!./outputs/image_analysis/images/pixel_distribution.png
+!./outputs/image_analysis/images/size_distribution.png
+!./outputs/img2latex_v2/plots/accuracy_curves.png
+!./outputs/img2latex_v2/plots/bleu_score.png
+!/outputs/image_analysis/images/formula_image_grid.png
+!/outputs/img2latex_v2/plots/composite_metrics.png
+docs/brief.md
