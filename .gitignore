@@ -82,10 +82,8 @@ venv.bak/
 *.pt.tar.gz.part
 docs/implementaion journal.md
 outputs/formula_analysis/length_histogram_data.csv
-CLAUDE.md
 
-
-
+/Users/jeremy/hmer-im2latex/docs/new_report.md
 /Users/jeremy/hmer-im2latex/docs/README_METRICS.md
 
 /Users/jeremy/hmer-im2latex/docs/implementaion journal.md
