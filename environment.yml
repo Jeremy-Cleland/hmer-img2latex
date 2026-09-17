@@ -5,7 +5,7 @@ channels:
   - defaults
 dependencies:
   # --- Core Python & Environment ---
-  - python=3.11      # Specify Python version
+  - python=3.14.7      # Specify Python version
   - pip              # For installing pip packages
 
   - numpy            # Fundamental for numerical operations
