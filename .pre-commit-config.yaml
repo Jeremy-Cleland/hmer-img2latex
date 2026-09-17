@@ -1,11 +1,11 @@
 repos:
   - repo: https://github.com/psf/black
-    rev: 23.0.0 # Replace with the version you use
+    rev: 26.5.1 # Replace with the version you use
     hooks:
       - id: black
         language_version: python3
   - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.11.5
+    rev: v0.16.7
     hooks:
       - id: ruff
         additional_dependencies: []
