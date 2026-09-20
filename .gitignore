@@ -99,4 +99,8 @@ outputs/formula_analysis/length_histogram_data.csv
 !/outputs/img2latex_v2/plots/bleu_score.png
 !/outputs/image_analysis/images/formula_image_grid.png
 !/outputs/img2latex_v2/plots/composite_metrics.png
+!/outputs/img2latex_transformer_v1/plots/accuracy_curves.png
+!/outputs/img2latex_transformer_v1/plots/bleu_score.png
+!/outputs/img2latex_transformer_v1/plots/composite_metrics.png
+!/outputs/img2latex_transformer_v1/plots/loss_curves.png
 docs/brief.md

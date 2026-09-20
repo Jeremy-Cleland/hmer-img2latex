@@ -611,13 +611,13 @@
                     <i class="fas fa-filter"></i>
                     <span class="nav-text">Preprocessing</span>
                 </a>
-                <a href="#cnn-lstm" class="nav-item" data-section="cnn-lstm">
+                <a href="#cnn-transformer" class="nav-item" data-section="cnn-transformer">
                     <i class="fas fa-microchip"></i>
-                    <span class="nav-text">CNN-LSTM</span>
+                    <span class="nav-text">CNN-Transformer</span>
                 </a>
-                <a href="#resnet-lstm" class="nav-item" data-section="resnet-lstm">
+                <a href="#resnet-transformer" class="nav-item" data-section="resnet-transformer">
                     <i class="fas fa-network-wired"></i>
-                    <span class="nav-text">ResNet-LSTM</span>
+                    <span class="nav-text">ResNet-Transformer</span>
                 </a>
                 <a href="#inference" class="nav-item" data-section="inference">
                     <i class="fas fa-rocket"></i>
@@ -654,30 +654,30 @@
 
             <div class="dashboard">
                 <div class="metric-card">
-                    <div class="metric-label">Final Accuracy</div>
+                    <div class="metric-label">Exact Match</div>
                     <div class="metric-value">
-                        62.56%
+                        21.9%
                     </div>
                 </div>
 
                 <div class="metric-card">
-                    <div class="metric-label">BLEU Score</div>
+                    <div class="metric-label">BLEU Score (generated)</div>
                     <div class="metric-value">
-                        0.1539
+                        0.790
                     </div>
                 </div>
 
                 <div class="metric-card">
-                    <div class="metric-label">Levenshtein Similarity</div>
+                    <div class="metric-label">Edit Distance</div>
                     <div class="metric-value">
-                        0.2829
+                        0.178
                     </div>
                 </div>
 
                 <div class="metric-card">
-                    <div class="metric-label">Training Epochs</div>
+                    <div class="metric-label">Best Epoch</div>
                     <div class="metric-value">
-                        25
+                        14
                     </div>
                 </div>
             </div>
@@ -699,10 +699,9 @@
                     for digitizing printed mathematical content.
                 </p>
                 <p>
-                    The system employs a sequence-to-sequence architecture, combining convolutional neural networks
-                    (CNNs) or residual networks (ResNets) for image encoding with Long Short-Term Memory (LSTM) networks
-                    for LaTeX sequence decoding. This approach leverages recent advances in computer vision and natural
-                    language processing to achieve state-of-the-art performance in formula recognition.
+                    The system uses a spatial CNN encoder that keeps the formula as a 2D feature grid, then a
+                    Transformer decoder that attends over that grid with a padding mask. Validation BLEU, exact match,
+                    and edit distance are computed from autoregressive generation, not teacher-forced token accuracy.
                 </p>
             </section>
 
@@ -773,24 +772,25 @@
                             Based on this analysis, our preprocessing pipeline includes:
                         </p>
                         <ul class="feature-list">
-                            <li><strong>Resizing:</strong> All images are resized to a fixed height of 64 pixels while
-                                maintaining the aspect ratio</li>
-                            <li><strong>Padding:</strong> Images are padded to a width of 800 pixels to accommodate all
-                                formulas without loss of information</li>
+                            <li><strong>Scale-to-fit:</strong> Each image is scaled to fit a 64×512 canvas without
+                                cropping, then padded with white on the right and bottom</li>
+                            <li><strong>Padding mask:</strong> Valid width and height are stored so the decoder cannot
+                                attend to empty canvas</li>
                             <li><strong>Channel Conversion:</strong>
                                 <ul>
-                                    <li>For CNN models: Images are converted to grayscale (1 channel)</li>
-                                    <li>For ResNet models: RGB format (3 channels) is maintained</li>
+                                    <li>CNN encoder: grayscale (1 channel)</li>
+                                    <li>ResNet encoder: RGB (3 channels)</li>
                                 </ul>
                             </li>
-                            <li><strong>Normalization:</strong> Pixel values are normalized from [0-255] to [0-1] range
-                            </li>
+                            <li><strong>Cache:</strong> A one-time uint8 memmap of unique processed images avoids
+                                repeating decode and resize during training</li>
+                            <li><strong>Normalization:</strong> Pixel values are scaled to [0, 1]</li>
                         </ul>
 
                         <p>
-                            The LaTeX formulas undergo tokenization using a custom <code>LaTeXTokenizer</code> class,
-                            which handles special LaTeX tokens and limits sequence length to a maximum of 141 tokens
-                            (the 95th percentile of the dataset formula lengths).
+                            The tokenizer is fit on the <strong>train split only</strong> with <code>min_freq=5</code>,
+                            then sequences are truncated at 141 tokens. Batches are length-bucketed so padding waste
+                            stays low.
                         </p>
                     </div>
                 </div>
@@ -805,51 +805,39 @@
                     </div>
                     <div class="card-body">
                         <p>
-                            The img2latex system offers two model variants, each with specific strengths and
-                            applications:
+                            The img2latex system offers two encoder variants that share the same Transformer decoder:
                         </p>
 
-                        <h4 id="cnn-lstm" class="subsection-title">1. CNN-LSTM Architecture</h4>
+                        <h4 id="cnn-transformer" class="subsection-title">1. CNN-Transformer Architecture</h4>
                         <p>
-                            The CNN-LSTM model consists of:
+                            The default model (~4.45M parameters) consists of:
                         </p>
                         <ul class="feature-list">
-                            <li><strong>Encoder:</strong> A convolutional neural network with three convolutional
-                                blocks, each containing:
-                                <ul>
-                                    <li>Conv2D layer (with filters [32, 64, 128])</li>
-                                    <li>ReLU activation</li>
-                                    <li>MaxPooling layer</li>
-                                </ul>
-                                <p>The final output is flattened and passed through a dense layer to create the
-                                    embedding</p>
-                            </li>
-                            <li><strong>Decoder:</strong> An LSTM-based decoder that:
-                                <ul>
-                                    <li>Takes the encoder output and previously generated tokens as input</li>
-                                    <li>Generates output tokens one at a time</li>
-                                    <li>Uses teacher forcing during training (ground truth tokens as input)</li>
-                                    <li>Offers optional attention mechanism to focus on different parts of the encoder
-                                        representation</li>
-                                </ul>
-                            </li>
+                            <li><strong>Encoder:</strong> Three Conv-BN-ReLU-MaxPool blocks (filters 32, 64, 128)
+                                downsample the 64×512 image by 8×. A 1×1 convolution projects to <code>d_model=256</code>,
+                                then 2D sinusoidal positional encoding is added. The result is a spatial grid of
+                                8×64 = 512 memory tokens plus a padding mask for empty canvas.</li>
+                            <li><strong>Decoder:</strong> A 4-layer pre-norm Transformer decoder (8 heads,
+                                feedforward 1024, tied embeddings) with a boolean causal mask. Cross-attention
+                                reads the encoder grid, not a single collapsed vector.</li>
                         </ul>
 
-                        <h4 id="resnet-lstm" class="subsection-title">2. ResNet-LSTM Architecture</h4>
+                        <h4 id="resnet-transformer" class="subsection-title">2. ResNet-Transformer Architecture</h4>
                         <p>
-                            The ResNet-LSTM model replaces the CNN encoder with a pre-trained ResNet:
+                            The optional ResNet encoder replaces the CNN while keeping the same decoder:
                         </p>
                         <ul class="feature-list">
-                            <li><strong>Encoder:</strong> A pre-trained ResNet (options include ResNet18, ResNet34,
-                                ResNet50, ResNet101, ResNet152) with:
-                                <ul>
-                                    <li>The classification head removed</li>
-                                    <li>Option to freeze weights for transfer learning</li>
-                                    <li>Final layer adapted to produce embeddings of the desired dimension</li>
-                                </ul>
-                            </li>
-                            <li><strong>Decoder:</strong> The same LSTM-based decoder as the CNN-LSTM model</li>
+                            <li><strong>Encoder:</strong> ResNet-18 with the classification head and avg-pool removed
+                                (<code>children()[:-2]</code>). <code>layer4</code> stride is set to 1 so the feature
+                                map stays a spatial grid (~/16) instead of collapsing to one vector.</li>
+                            <li><strong>Decoder:</strong> The same Transformer decoder as the CNN model.</li>
                         </ul>
+
+                        <p>
+                            The previous CNN-LSTM / ResNet-LSTM stack collapsed each image to a single vector, so
+                            attention was a no-op. That, plus teacher-forced BLEU, is why the old report sat at 0.15
+                            BLEU.
+                        </p>
                     </div>
                 </div>
             </section>
@@ -868,30 +856,30 @@
 
                         <h4 class="subsection-title">Optimization Setup</h4>
                         <ul class="feature-list">
-                            <li><strong>Optimizer:</strong> Adam with configurable learning rate and weight decay</li>
-                            <li><strong>Learning Rate Scheduling:</strong> ReduceLROnPlateau with patience 3, factor 0.5
-                            </li>
-                            <li><strong>Loss Function:</strong> Cross-entropy with label smoothing (0.1)</li>
+                            <li><strong>Optimizer:</strong> AdamW, learning rate 3e-4, weight decay 1e-4</li>
+                            <li><strong>Learning Rate Scheduling:</strong> Linear warmup for 5% of steps, then cosine
+                                decay</li>
+                            <li><strong>Loss Function:</strong> Cross-entropy with label smoothing (0.1), pad ignored</li>
                         </ul>
 
                         <h4 class="subsection-title">Training Techniques</h4>
                         <ul class="feature-list">
-                            <li><strong>Teacher Forcing:</strong> Scheduled sampling approach transitioning from ground
-                                truth to predictions</li>
-                            <li><strong>Gradient Clipping:</strong> Norm-based clipping (value: 5.0) to prevent
-                                exploding gradients</li>
-                            <li><strong>Early Stopping:</strong> Training stops if validation metrics don't improve for
-                                5 epochs</li>
-                            <li><strong>Checkpointing:</strong> Regular saving of model checkpoints for resuming
-                                training</li>
+                            <li><strong>Teacher Forcing:</strong> Used only for the training loss. Validation BLEU is
+                                computed from autoregressive generation on a fixed 256-sample subset</li>
+                            <li><strong>Gradient Clipping:</strong> Norm-based clipping at 1.0</li>
+                            <li><strong>Early Stopping:</strong> Stops after 8 epochs without a validation BLEU
+                                improvement</li>
+                            <li><strong>Checkpointing:</strong> Best checkpoint is selected on validation BLEU, not
+                                validation loss</li>
                         </ul>
 
                         <h4 class="subsection-title">Hardware Acceleration</h4>
                         <ul class="feature-list">
-                            <li><strong>Device Support:</strong> CUDA for NVIDIA GPUs, MPS for Apple Silicon, CPU
-                                fallback</li>
-                            <li><strong>Mixed Precision:</strong> FP16 computation where supported (30-40% faster
-                                training)</li>
+                            <li><strong>Device Support:</strong> MPS on Apple Silicon (this run), CUDA, or CPU fallback</li>
+                            <li><strong>Precision:</strong> fp32 on MPS (no GradScaler). Mixed precision is available
+                                on CUDA only</li>
+                            <li><strong>DataLoader:</strong> <code>num_workers=0</code> on macOS to avoid OpenMP /
+                                libomp collisions with PyTorch MPS</li>
                         </ul>
                     </div>
                 </div>
@@ -906,20 +894,20 @@
                     </div>
                     <div class="card-body">
                         <p>
-                            During inference, the model offers three decoding strategies:
+                            During inference, the model offers greedy decoding and batched beam search:
                         </p>
 
                         <ol class="feature-list">
-                            <li><strong>Greedy Search:</strong> Selects the most probable token at each step</li>
-                            <li><strong>Sampling with Temperature/Top-k/Top-p:</strong> Introduces randomness in the
-                                generation process</li>
-                            <li><strong>Beam Search:</strong> Maintains multiple candidate sequences and selects the
-                                most probable overall sequence</li>
+                            <li><strong>Greedy Search:</strong> Selects the most probable token at each step. Used
+                                for validation BLEU so scores stay comparable across epochs</li>
+                            <li><strong>Beam Search:</strong> Batched beam search with GNMT length penalty (beam size
+                                5, length penalty 0.7). This is the default for the predictor CLI</li>
                         </ol>
 
                         <p>
-                            Beam search (with beam size 3) improved BLEU scores by an average of 7.2% compared to greedy
-                            search, making it the preferred decoding strategy for most applications.
+                            Beam search is enabled in the predictor (it was previously short-circuited). Reported
+                            validation BLEU in this report uses greedy decode on 256 validation samples so the metric
+                            matches the checkpoint-selection criterion.
                         </p>
                     </div>
                 </div>
@@ -934,18 +922,19 @@
                     </div>
                     <div class="card-body">
                         <p>
-                            Our experiments evaluated the performance of both CNN-LSTM and ResNet-LSTM architectures
-                            with various hyperparameter settings. Key configurations included:
+                            Experiments used the CNN-Transformer on Apple Silicon MPS. Checkpoints are selected on
+                            validation BLEU from autoregressive generation, not teacher-forced token accuracy. Key
+                            configuration:
                         </p>
 
                         <div class="model-details">
                             <div class="detail-item">
                                 <div class="detail-label">Model Type</div>
-                                <div class="detail-value">CNN-LSTM</div>
+                                <div class="detail-value">CNN-Transformer</div>
                             </div>
                             <div class="detail-item">
                                 <div class="detail-label">Image Dimensions</div>
-                                <div class="detail-value">64 × 800 pixels</div>
+                                <div class="detail-value">64 × 512 pixels</div>
                             </div>
                             <div class="detail-item">
                                 <div class="detail-label">Batch Size</div>
@@ -953,7 +942,7 @@
                             </div>
                             <div class="detail-item">
                                 <div class="detail-label">Learning Rate</div>
-                                <div class="detail-value">0.001</div>
+                                <div class="detail-value">3e-4 (AdamW)</div>
                             </div>
                             <div class="detail-item">
                                 <div class="detail-label">Weight Decay</div>
@@ -968,28 +957,29 @@
                                 <div class="detail-value">256</div>
                             </div>
                             <div class="detail-item">
-                                <div class="detail-label">Hidden Dimension</div>
-                                <div class="detail-value">256</div>
+                                <div class="detail-label">Decoder</div>
+                                <div class="detail-value">4 layers, 8 heads</div>
                             </div>
                         </div>
 
                         <h4 class="subsection-title">Evaluation Metrics</h4>
                         <p>
-                            We evaluated the model performance using four key metrics:
+                            Reported scores come from generated token sequences (greedy decode, 256 validation samples):
                         </p>
                         <ol class="feature-list">
-                            <li><strong>Loss:</strong> Cross-entropy loss on validation data</li>
-                            <li><strong>Accuracy:</strong> Token-level accuracy (ignoring padding tokens)</li>
-                            <li><strong>BLEU Score:</strong> Measures n-gram precision between generated and reference
-                                sequences</li>
-                            <li><strong>Levenshtein Similarity:</strong> Normalized edit distance between generated and
-                                reference sequences</li>
+                            <li><strong>BLEU-4:</strong> Smoothed corpus BLEU (<code>nltk</code> method3)</li>
+                            <li><strong>Exact match:</strong> Generated tokens equal the reference after stripping
+                                START/END/PAD</li>
+                            <li><strong>Normalized edit distance:</strong> Mean Levenshtein / max(len); lower is better</li>
+                            <li><strong>Token accuracy:</strong> Teacher-forced diagnostic only; not used for
+                                checkpoint selection</li>
                         </ol>
 
                         <h4 class="subsection-title">Performance Results</h4>
                         <p>
-                            Our training process spanned 25 epochs, with the following progression in validation metrics
-                            for our best-performing model (img2latex_v2):
+                            Best checkpoint is epoch 14 of a 30-epoch schedule (img2latex_transformer_v1). BLEU is
+                            <strong>autoregressive</strong>. The legacy CNN-LSTM report of 0.1539 BLEU was
+                            teacher-forced and is not comparable.
                         </p>
 
                         <div class="chart-container">
@@ -1001,68 +991,69 @@
                             <thead>
                                 <tr>
                                     <th>Epoch</th>
-                                    <th>Loss</th>
-                                    <th>Accuracy</th>
+                                    <th>Val Loss</th>
+                                    <th>TF Acc</th>
                                     <th>BLEU</th>
-                                    <th>Levenshtein</th>
+                                    <th>Exact Match</th>
+                                    <th>Edit Dist</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr>
                                     <td>1</td>
-                                    <td>2.2778</td>
-                                    <td>0.4986</td>
-                                    <td>0.0827</td>
-                                    <td>0.2311</td>
+                                    <td>2.9760</td>
+                                    <td>0.4773</td>
+                                    <td>0.1165</td>
+                                    <td>0.0%</td>
+                                    <td>0.7295</td>
                                 </tr>
                                 <tr>
                                     <td>5</td>
-                                    <td>1.8408</td>
-                                    <td>0.5760</td>
-                                    <td>0.1241</td>
-                                    <td>0.2609</td>
+                                    <td>1.5380</td>
+                                    <td>0.8461</td>
+                                    <td>0.6376</td>
+                                    <td>5.5%</td>
+                                    <td>0.2848</td>
                                 </tr>
                                 <tr>
                                     <td>10</td>
-                                    <td>1.6909</td>
-                                    <td>0.6022</td>
-                                    <td>0.1377</td>
-                                    <td>0.2716</td>
+                                    <td>1.3741</td>
+                                    <td>0.8924</td>
+                                    <td>0.7508</td>
+                                    <td>15.2%</td>
+                                    <td>0.2093</td>
                                 </tr>
                                 <tr>
-                                    <td>15</td>
-                                    <td>1.6338</td>
-                                    <td>0.6116</td>
-                                    <td>0.1464</td>
-                                    <td>0.2781</td>
+                                    <td>14</td>
+                                    <td>1.2730</td>
+                                    <td>0.9152</td>
+                                    <td>0.7896</td>
+                                    <td>21.9%</td>
+                                    <td>0.1778</td>
                                 </tr>
                                 <tr>
-                                    <td>20</td>
-                                    <td>1.6030</td>
-                                    <td>0.6180</td>
-                                    <td>0.1502</td>
-                                    <td>0.2799</td>
-                                </tr>
-                                <tr>
-                                    <td>25</td>
-                                    <td>1.5663</td>
-                                    <td>0.6256</td>
-                                    <td>0.1539</td>
-                                    <td>0.2829</td>
+                                    <td>18</td>
+                                    <td>1.3295</td>
+                                    <td>0.9065</td>
+                                    <td>0.7880</td>
+                                    <td>21.1%</td>
+                                    <td>0.1770</td>
                                 </tr>
                             </tbody>
                         </table>
 
-                        <h4 class="subsection-title">Model Comparisons</h4>
+                        <h4 class="subsection-title">Comparison to the Legacy LSTM</h4>
                         <p>
-                            The comparison between our CNN-LSTM and ResNet-LSTM models showed:
+                            The previous CNN-LSTM / ResNet-LSTM numbers were teacher-forced and used encoders that
+                            collapsed the image to a single vector:
                         </p>
                         <ul class="feature-list">
-                            <li>CNN-LSTM (img2latex_v2) achieved 62.56% validation accuracy and a BLEU score of 0.1539
-                            </li>
-                            <li>ResNet50-LSTM achieved 59.42% accuracy and 0.1487 BLEU score in fewer epochs</li>
-                            <li>The CNN-LSTM architecture provided superior results with lower computational
-                                requirements</li>
+                            <li>CNN-Transformer (this run): generated BLEU <strong>0.790</strong>, exact match
+                                21.9%, edit distance 0.178 (epoch 14)</li>
+                            <li>Legacy CNN-LSTM (img2latex_v2): teacher-forced accuracy 62.56% and BLEU 0.1539;
+                                no checkpoint remained in the repo to re-score honestly</li>
+                            <li>Spatial features plus a Transformer decoder moved generated BLEU from ~0.15 to ~0.79
+                                in 14 epochs on MPS</li>
                         </ul>
 
                         <div class="chart-container">
@@ -1081,13 +1072,11 @@
                         </ul>
 
                         <p>
-                            Performance strongly correlated with formula complexity:
+                            Sample generations on a long nested integral show the remaining failure mode: the model
+                            recovers the overall structure (integrals, deltas, fractions) but still drops primes,
+                            confuses <code>\mathrm{e}</code> with <code>\operatorname{e}</code>, and loses subscripts
+                            inside nested fractions.
                         </p>
-                        <ul class="feature-list">
-                            <li>Simple expressions (e.g., algebraic equations) achieved up to 87% token accuracy</li>
-                            <li>Complex expressions (e.g., matrices, commutative diagrams) had accuracy as low as 43%
-                            </li>
-                        </ul>
                     </div>
                 </div>
             </section>
@@ -1106,9 +1095,9 @@
                                 <i class="fas fa-chart-line"></i>
                             </div>
                             <div class="insight-content">
-                                <strong>Performance Progression:</strong> The model showed consistent improvement across
-                                all metrics through the training process. Loss decreased by 31.2% from epoch 1 to epoch
-                                25, while BLEU score improved by 86.1% over the same period.
+                                <strong>Performance Progression:</strong> Generated BLEU rose from 0.117 at epoch 1
+                                to 0.790 at epoch 14. Exact match went from 0% to 21.9% over the same span. After
+                                epoch 14 the run plateaued around 0.78–0.79 BLEU.
                             </div>
                         </div>
 
@@ -1117,9 +1106,10 @@
                                 <i class="fas fa-code-branch"></i>
                             </div>
                             <div class="insight-content">
-                                <strong>Architecture Comparison:</strong> The CNN-LSTM architecture provided superior
-                                results with lower computational requirements than the ResNet-based model, despite the
-                                latter's sophisticated pre-trained features.
+                                <strong>Architecture Comparison:</strong> Keeping a spatial feature grid and using a
+                                Transformer decoder is what moved generated BLEU from the legacy 0.15 (teacher-forced,
+                                collapsed encoder) to 0.79. The optional ResNet-Transformer config is available but
+                                was not the primary run.
                             </div>
                         </div>
 
@@ -1139,9 +1129,9 @@
                                 <i class="fas fa-project-diagram"></i>
                             </div>
                             <div class="insight-content">
-                                <strong>Decoding Strategy Impact:</strong> Beam search (beam size 3) improved BLEU
-                                scores by an average of 7.2% compared to greedy search, confirming the importance of
-                                exploring multiple candidate sequences during inference.
+                                <strong>Decoding Strategy Impact:</strong> Validation BLEU uses greedy decode so
+                                checkpoint selection stays stable. Batched beam search with GNMT length penalty
+                                (beam size 5) is the predictor default for inference.
                             </div>
                         </div>
 
@@ -1150,9 +1140,9 @@
                                 <i class="fas fa-balance-scale"></i>
                             </div>
                             <div class="insight-content">
-                                <strong>Complexity Correlation:</strong> Performance varied significantly based on
-                                formula complexity, with simple expressions achieving much higher accuracy than complex
-                                ones. This suggests potential benefits from a curriculum learning approach.
+                                <strong>Complexity Correlation:</strong> Long nested formulas remain the main gap.
+                                Exact match is 21.9% while BLEU is 0.79, which means many predictions are close token
+                                sequences rather than letter-perfect LaTeX.
                             </div>
                         </div>
                     </div>
@@ -1162,42 +1152,38 @@
             <section id="conclusion" class="content-section">
                 <h2 class="section-title">Conclusion</h2>
                 <p>
-                    The img2latex project successfully demonstrates the viability of deep learning approaches for
-                    converting images of mathematical expressions to LaTeX code. Our implementation of CNN-LSTM and
-                    ResNet-LSTM architectures shows promising results, achieving reasonable accuracy on the challenging
-                    task of mathematical formula recognition.
+                    The img2latex project converts printed math images to LaTeX with a spatial CNN encoder and a
+                    Transformer decoder. On IM2LaTeX-100k, the best checkpoint (epoch 14, Apple Silicon MPS) reaches
+                    generated BLEU 0.790, exact match 21.9%, and normalized edit distance 0.178.
                 </p>
                 <p>
-                    Key achievements of the project include:
+                    Key achievements of the revision include:
                 </p>
                 <ol>
-                    <li>A comprehensive data processing pipeline that effectively handles variability in the input
-                        images</li>
-                    <li>Flexible model architecture options to accommodate different computational resources and
-                        accuracy requirements</li>
-                    <li>Multiple decoding strategies to allow for trade-offs between speed and quality</li>
-                    <li>Robust evaluation using multiple metrics to assess both token-level accuracy and semantic
-                        correctness</li>
+                    <li>Honest evaluation: corpus BLEU, exact match, and edit distance from autoregressive generation</li>
+                    <li>A spatial encoder grid with a real padding mask instead of a collapsed image vector</li>
+                    <li>Batched beam search with length normalization, enabled in the predictor</li>
+                    <li>A 64×512 scale-to-fit pipeline, train-only tokenizer, image cache, and length-bucketed batches</li>
+                    <li>AdamW with warmup plus cosine decay, trained in fp32 on MPS</li>
                 </ol>
                 <p>
-                    Despite these successes, several challenges remain. The model still struggles with very complex
-                    formulas, particularly those with nested structures or uncommon mathematical symbols. Additionally,
-                    the current approach requires significant computational resources for training and could benefit
-                    from further optimization.
+                    Remaining gaps are mostly long nested formulas and rare symbols. The model still confuses similar
+                    glyphs and occasionally drops subscripts. Beam search at inference and a larger decoder would be
+                    the next levers; the Transformer rewrite already replaced the LSTM path that was planned as future
+                    work.
                 </p>
                 <p>
                     Future work could focus on:
                 </p>
                 <ol>
-                    <li>Incorporating more sophisticated attention mechanisms</li>
-                    <li>Exploring transformer-based architectures as an alternative to LSTM decoders</li>
-                    <li>Implementing data augmentation strategies to improve generalization</li>
-                    <li>Developing post-processing techniques to correct common errors in the generated LaTeX</li>
+                    <li>Scoring the full validation set with beam search, not just a 256-sample greedy subset</li>
+                    <li>A larger Transformer (more layers / heads) or the ResNet-Transformer variant</li>
+                    <li>Covering rare tokens that fall below <code>min_freq=5</code></li>
+                    <li>Post-processing for common LaTeX bracket and delimiter errors</li>
                 </ol>
                 <p>
-                    The img2latex system provides a strong foundation for further research and development in
-                    mathematical formula recognition, with potential applications in digital document processing,
-                    accessibility tools, and educational technology.
+                    The img2latex system is a working image-to-LaTeX converter with metrics that match what the
+                    decoder actually emits at inference time.
                 </p>
 
                 <div class="alert alert-success mt-4">
@@ -1207,12 +1193,10 @@
                     <div class="alert-content">
                         <h4>Overall Assessment</h4>
                         <p>
-                            Our Image to LaTeX conversion system demonstrates that deep learning approaches can
-                            effectively address the challenging task of mathematical formula recognition. While the
-                            current system achieves promising results with token-level accuracy of 62.56% and BLEU score
-                            of 0.1539, there remain significant opportunities for improvement in handling complex
-                            formulas and computational efficiency. The project provides a solid foundation for future
-                            work and real-world applications in document digitization and accessibility.
+                            The CNN-Transformer reaches generated BLEU 0.790 and exact match 21.9% at epoch 14, versus
+                            the legacy teacher-forced BLEU of 0.1539. Spatial features and honest autoregressive
+                            metrics were the difference. Remaining errors concentrate on nested structure and rare
+                            symbols rather than a collapsed encoder.
                         </p>
                     </div>
                 </div>

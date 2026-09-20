@@ -49,6 +49,28 @@ Legacy teacher-forced numbers (for comparison only): accuracy 62.56%, BLEU 0.153
 
 Latest Transformer results are written to `outputs/img2latex_transformer_v1/metrics/metrics.json` during training.
 
+Best checkpoint so far (epoch 14, **autoregressive** greedy decode on 256 val samples):
+
+| Metric | Transformer (new) | Legacy LSTM (teacher-forced) |
+|--------|-------------------|------------------------------|
+| BLEU-4 | **0.790** | 0.154 |
+| Exact match | **21.9%** | not reported (would be ~0) |
+| Normalized edit distance | **0.178** | n/a |
+| Token accuracy (teacher-forced diagnostic) | 91.5% | 62.6% |
+
+Validation BLEU by epoch:
+
+| Epoch | Val loss | TF acc | BLEU | Exact match | Edit dist |
+|-------|----------|--------|------|-------------|-----------|
+| 1     | 2.98     | 0.477  | 0.117 | 0.0%       | 0.730     |
+| 5     | 1.54     | 0.846  | 0.638 | 5.5%       | 0.285     |
+| 10    | 1.37     | 0.892  | 0.751 | 15.2%      | 0.209     |
+| 14    | 1.27     | 0.915  | 0.790 | 21.9%      | 0.178     |
+
+![BLEU Score](./outputs/img2latex_transformer_v1/plots/bleu_score.png)
+
+![Composite Metrics](./outputs/img2latex_transformer_v1/plots/composite_metrics.png)
+
 ## Training setup
 
 - **Optimizer:** AdamW, lr 3e-4, weight decay 1e-4
