@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "img2latex"
-version = "0.1.0"
-description = "Image to LaTeX conversion using CNN-LSTM and ResNet-LSTM models"
+version = "0.2.0"
+description = "Image to LaTeX conversion using a CNN/ResNet encoder and Transformer decoder"
 readme = "README.md"
-authors = [{ name = "Claude AI Assistant" }]
-requires-python = ">=3.8"
+authors = [{ name = "Jeremy Cleland" }]
+requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "torch>=2.0.0",
@@ -20,22 +20,24 @@ dependencies = [
     "tqdm>=4.62.0",
     "python-Levenshtein>=0.12.2",
     "editdistance>=0.6.0",
-    "typer[all]>=0.7.0",
+    "typer>=0.7.0",
     "tensorboard>=2.10.0",
     "pillow>=9.0.0",
     "rich>=12.0.0",
     "opencv-python>=4.5.0",
+    "nltk>=3.8",
+    "psutil>=5.9.0",
 ]
 
 [project.scripts]
 img2latex = "img2latex.cli:app"
 
-[tool.setuptools]
-packages = ["img2latex"]
+[tool.setuptools.packages.find]
+include = ["img2latex*"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py38"
+target-version = "py311"
 lint.select = ["E", "F", "W", "I"]
 lint.ignore = ["E501"]
 
@@ -43,7 +45,7 @@ lint.ignore = ["E501"]
 "__init__.py" = ["F401"]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

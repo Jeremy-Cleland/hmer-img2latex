@@ -52,6 +52,22 @@ dirs:
 	@echo "Directories created"
 
 # Download dataset
+download-data:
+	@mkdir -p data
+	@if [ -d data/img ] && [ "$$(ls data/img | head -1)" ]; then \
+		echo "Images already present in data/img"; \
+	else \
+		echo "Downloading processed IM2LaTeX images..."; \
+		curl -L --fail --retry 3 -o data/formula_images_processed.tar.gz \
+			https://im2markup.yuntiandeng.com/data/formula_images_processed.tar.gz; \
+		tar -xzf data/formula_images_processed.tar.gz -C data; \
+		if [ -d data/formula_images_processed ]; then mv data/formula_images_processed data/img; fi; \
+		echo "Extracted $$(ls data/img | wc -l | tr -d ' ') images to data/img"; \
+	fi
+
+build-cache:
+	$(PYTHON) -m img2latex.cli build-cache --config-path $(CONFIG)
+
 # Training targets
 train:
 	@if [ -z "$(EXPERIMENT)" ]; then \
@@ -187,7 +203,7 @@ plot-curves-from-file:
 	fi
 	$(PYTHON) img2latex/analysis/curves.py $(METRICS_FILE) --output-dir $(OUTPUTS_DIR)/learning_curves
 
-.PHONY: clean-pyc clean-outputs clean-metrics clean-all setup dirs download-data train train-resume predict evaluate \
+.PHONY: clean-pyc clean-outputs clean-metrics clean-all setup dirs download-data build-cache train train-resume predict evaluate \
         metrics-visualize metrics-latest metrics-compare metrics-export \
         lint lint-fix format typecheck check-all help analyze-images analyze-project \
         analyze-curves analyze-tokens analyze-errors analyze-preprocess analyze-all plot-curves-from-file

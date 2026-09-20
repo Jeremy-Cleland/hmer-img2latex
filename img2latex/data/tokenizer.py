@@ -77,12 +77,13 @@ class LaTeXTokenizer:
         self.end_token_id = self.token_to_id[self.special_tokens["END"]]
         self.unk_token_id = self.token_to_id[self.special_tokens["UNK"]]
 
-    def fit(self, texts: List[str]) -> None:
+    def fit(self, texts: List[str], min_freq: int = 1) -> None:
         """
         Fit the tokenizer on a list of LaTeX formula texts.
 
         Args:
             texts: List of LaTeX formula texts
+            min_freq: Ignore tokens that appear fewer than this many times
         """
         # Reset vocabulary
         self._init_special_tokens()
@@ -96,12 +97,18 @@ class LaTeXTokenizer:
         # Sort tokens by frequency (descending)
         sorted_tokens = sorted(counter.items(), key=lambda x: x[1], reverse=True)
 
-        # Add tokens to vocabulary (skipping those already in vocabulary)
-        for token, _ in sorted_tokens:
-            if token not in self.token_to_id:
-                self.token_to_id[token] = self.vocab_size
-                self.id_to_token[self.vocab_size] = token
-                self.vocab_size += 1
+        skipped = 0
+        for token, count in sorted_tokens:
+            if token in self.token_to_id:
+                continue
+            if count < min_freq:
+                skipped += 1
+                continue
+            self.token_to_id[token] = self.vocab_size
+            self.id_to_token[self.vocab_size] = token
+            self.vocab_size += 1
+        if skipped:
+            logger.info("Skipped %s tokens with frequency < %s", skipped, min_freq)
 
         # Check if max sequence length is sufficient
         max_found_length = max(len(text.split()) for text in texts)
@@ -137,8 +144,40 @@ class LaTeXTokenizer:
             for formula in formulas
         ]
 
-        # Fit tokenizer on processed formulas
-        self.fit(processed_formulas)
+        self.fit(processed_formulas, min_freq=1)
+
+    def fit_on_split(
+        self,
+        formulas_file: str,
+        split_file: str,
+        min_freq: int = 5,
+    ) -> None:
+        """Fit the vocabulary on a single split to avoid leaking val/test tokens."""
+        if not os.path.exists(formulas_file):
+            raise FileNotFoundError(f"Formulas file not found: {formulas_file}")
+        if not os.path.exists(split_file):
+            raise FileNotFoundError(f"Split file not found: {split_file}")
+
+        with open(formulas_file, "r", encoding="utf-8") as f:
+            formulas = [line.strip() for line in f]
+
+        texts = []
+        with open(split_file, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) != 2:
+                    continue
+                try:
+                    idx = int(parts[1])
+                except ValueError:
+                    continue
+                if 0 <= idx < len(formulas):
+                    texts.append(
+                        f"{self.special_tokens['START']} {formulas[idx]} {self.special_tokens['END']}"
+                    )
+
+        self.fit(texts, min_freq=min_freq)
+        logger.info("Fitted tokenizer on %s split formulas (min_freq=%s)", len(texts), min_freq)
 
     def encode(self, text: str, add_special_tokens: bool = False) -> List[int]:
         """

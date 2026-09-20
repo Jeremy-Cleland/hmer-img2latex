@@ -1,8 +1,11 @@
 """
-LSTM-based decoder for the image-to-LaTeX model.
+Transformer decoder for the image-to-LaTeX model.
+
+Also keeps the original LSTMDecoder for reference; Seq2Seq uses TransformerDecoder.
 """
 
-from typing import Tuple
+import math
+from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -13,12 +16,129 @@ from img2latex.utils.logging import get_logger
 logger = get_logger(__name__, log_level="INFO")
 
 
+class SinusoidalPositionalEncoding(nn.Module):
+    """Standard 1D sinusoidal positional encoding."""
+
+    def __init__(self, d_model: int, max_len: int = 512, dropout: float = 0.1):
+        super().__init__()
+        self.dropout = nn.Dropout(dropout)
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float32).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2, dtype=torch.float32) * (-math.log(10000.0) / d_model)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer("pe", pe.unsqueeze(0), persistent=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x + self.pe[:, : x.size(1)]
+        return self.dropout(x)
+
+
+class TransformerDecoder(nn.Module):
+    """
+    Transformer decoder with tied input/output embeddings.
+
+    Cross-attends over the encoder feature grid. Training is fully parallel
+    with a causal mask; inference feeds the growing prefix each step.
+    """
+
+    def __init__(
+        self,
+        vocab_size: int,
+        embedding_dim: int = 256,
+        hidden_dim: int = 256,
+        nhead: int = 8,
+        num_layers: int = 4,
+        dim_feedforward: int = 1024,
+        dropout: float = 0.1,
+        max_seq_length: int = 141,
+        pad_token_id: int = 0,
+    ):
+        super().__init__()
+        d_model = embedding_dim
+        if d_model != hidden_dim:
+            logger.warning(
+                "decoder hidden_dim (%s) differs from embedding_dim (%s); using embedding_dim",
+                hidden_dim,
+                embedding_dim,
+            )
+            d_model = embedding_dim
+
+        self.vocab_size = vocab_size
+        self.d_model = d_model
+        self.max_seq_length = max_seq_length
+        self.pad_token_id = pad_token_id
+        self.scale = math.sqrt(d_model)
+
+        self.embedding = nn.Embedding(vocab_size, d_model, padding_idx=pad_token_id)
+        nn.init.normal_(self.embedding.weight, mean=0.0, std=d_model ** -0.5)
+        if pad_token_id is not None:
+            self.embedding.weight.data[pad_token_id].zero_()
+        self.pos_encoding = SinusoidalPositionalEncoding(
+            d_model, max_len=max_seq_length + 8, dropout=dropout
+        )
+        layer = nn.TransformerDecoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            batch_first=True,
+            norm_first=True,
+        )
+        self.decoder = nn.TransformerDecoder(layer, num_layers=num_layers)
+        self.output_proj = nn.Linear(d_model, vocab_size, bias=False)
+        self.output_proj.weight = self.embedding.weight
+
+        logger.info(
+            "Initialized Transformer decoder: vocab=%s d_model=%s layers=%s heads=%s",
+            vocab_size,
+            d_model,
+            num_layers,
+            nhead,
+        )
+
+    def forward(
+        self,
+        memory: torch.Tensor,
+        tgt_tokens: torch.Tensor,
+        memory_key_padding_mask: Optional[torch.Tensor] = None,
+        tgt_key_padding_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        Args:
+            memory: Encoder grid, (batch, src_len, d_model)
+            tgt_tokens: Target token ids, (batch, tgt_len)
+            memory_key_padding_mask: True = ignore encoder position
+            tgt_key_padding_mask: True = ignore target pad tokens
+
+        Returns:
+            Logits of shape (batch, tgt_len, vocab_size)
+        """
+        tgt = self.embedding(tgt_tokens) * self.scale
+        tgt = self.pos_encoding(tgt)
+        seq_len = tgt_tokens.size(1)
+        causal_mask = torch.triu(
+            torch.ones(seq_len, seq_len, dtype=torch.bool, device=tgt.device),
+            diagonal=1,
+        )
+        decoded = self.decoder(
+            tgt=tgt,
+            memory=memory,
+            tgt_mask=causal_mask,
+            tgt_key_padding_mask=tgt_key_padding_mask,
+            memory_key_padding_mask=memory_key_padding_mask,
+        )
+        return self.output_proj(decoded)
+
+
 class LSTMDecoder(nn.Module):
     """
-    LSTM-based decoder for the image-to-LaTeX model.
+    Legacy LSTM decoder kept so existing imports continue to resolve.
 
-    This decoder processes the encoder output and generates LaTeX tokens
-    one at a time using an LSTM network.
+    Attention now expects a real encoder sequence (batch, src_len, dim), not a
+    single pooled vector.
     """
 
     def __init__(
@@ -31,31 +151,17 @@ class LSTMDecoder(nn.Module):
         dropout: float = None,
         attention: bool = True,
     ):
-        """
-        Initialize the LSTM decoder.
-
-        Args:
-            vocab_size: Size of the vocabulary
-            embedding_dim: Dimension of the input and token embeddings
-            hidden_dim: Dimension of the LSTM hidden state
-            max_seq_length: Maximum length of generated sequences
-            lstm_layers: Number of LSTM layers
-            dropout: Dropout rate
-            attention: Whether to use attention mechanism (recommended)
-        """
-        super(LSTMDecoder, self).__init__()
-
-        # Set default values if not provided
+        super().__init__()
         if embedding_dim is None:
-            embedding_dim = 256  # Fallback only if config value not passed
+            embedding_dim = 256
         if hidden_dim is None:
-            hidden_dim = 256  # Fallback only if config value not passed
+            hidden_dim = 256
         if max_seq_length is None:
-            max_seq_length = 141  # Fallback only if config value not passed
+            max_seq_length = 141
         if lstm_layers is None:
-            lstm_layers = 1  # Fallback only if config value not passed
+            lstm_layers = 1
         if dropout is None:
-            dropout = 0.1  # Fallback only if config value not passed
+            dropout = 0.1
 
         self.vocab_size = vocab_size
         self.embedding_dim = embedding_dim
@@ -65,14 +171,7 @@ class LSTMDecoder(nn.Module):
         self.dropout = dropout
         self.use_attention = attention
 
-        # Embedding layer for the input tokens
         self.embedding = nn.Embedding(vocab_size, embedding_dim)
-
-        # LSTM layer
-        # Input consists of: token embedding + encoder output (or context vector from attention)
-        # Total input size is embedding_dim + embedding_dim = 2 * embedding_dim
-        # This is correct whether using attention or not, as both the direct encoder output
-        # and the attention-based context vector have dimension embedding_dim
         self.lstm = nn.LSTM(
             input_size=2 * embedding_dim,
             hidden_size=hidden_dim,
@@ -80,264 +179,71 @@ class LSTMDecoder(nn.Module):
             batch_first=True,
             dropout=dropout if lstm_layers > 1 else 0,
         )
-
-        # Attention mechanism
         if attention:
             self.attention = Attention(hidden_dim, embedding_dim)
-            logger.info("Using attention mechanism in decoder")
-
-        # Output layer
         self.output_layer = nn.Linear(hidden_dim, vocab_size)
-
-        # Dropout layer
         self.dropout_layer = nn.Dropout(dropout)
-
-        logger.info(
-            f"Initialized LSTM decoder with vocab size: {vocab_size}, hidden dim: {hidden_dim}, "
-            f"embedding dim: {embedding_dim}, attention: {attention}"
-        )
 
     def forward(
         self, encoder_output: torch.Tensor, target_sequence: torch.Tensor, hidden=None
     ) -> torch.Tensor:
-        """
-        Forward pass through the LSTM decoder (training mode).
-
-        Args:
-            encoder_output: Output from the encoder, shape (batch_size, embedding_dim)
-            target_sequence: Input token sequence, shape (batch_size, seq_length)
-            hidden: Initial hidden state for the LSTM
-
-        Returns:
-            Logits for each token in the output sequence, shape (batch_size, seq_length, vocab_size)
-        """
         batch_size, seq_length = target_sequence.shape
-
-        # Get token embeddings
-        embedded = self.embedding(
-            target_sequence
-        )  # (batch_size, seq_length, embedding_dim)
+        embedded = self.embedding(target_sequence)
+        if encoder_output.dim() == 2:
+            encoder_output = encoder_output.unsqueeze(1)
 
         if not self.use_attention:
-            # Repeat encoder output for each time step
-            # Shape: (batch_size, seq_length, embedding_dim)
-            encoder_output_repeated = encoder_output.unsqueeze(1).repeat(
-                1, seq_length, 1
-            )
+            encoder_output_repeated = encoder_output.mean(dim=1, keepdim=True).repeat(1, seq_length, 1)
+            lstm_input = self.dropout_layer(torch.cat([embedded, encoder_output_repeated], dim=2))
+            lstm_output, _ = self.lstm(lstm_input, hidden)
+            return self.output_layer(self.dropout_layer(lstm_output))
 
-            # Concatenate token embeddings with encoder output
-            # Shape: (batch_size, seq_length, 2*embedding_dim)
-            lstm_input = torch.cat([embedded, encoder_output_repeated], dim=2)
+        if hidden is None:
+            h_0 = torch.zeros(self.lstm_layers, batch_size, self.hidden_dim, device=target_sequence.device)
+            c_0 = torch.zeros(self.lstm_layers, batch_size, self.hidden_dim, device=target_sequence.device)
+            hidden = (h_0, c_0)
 
-            # Apply dropout to the input
-            lstm_input = self.dropout_layer(lstm_input)
-
-            # Pass through LSTM
-            lstm_output, hidden = self.lstm(lstm_input, hidden)
-
-            # Apply dropout to LSTM output
-            lstm_output = self.dropout_layer(lstm_output)
-
-            # Project to vocabulary size
-            # Shape: (batch_size, seq_length, vocab_size)
-            output = self.output_layer(lstm_output)
-        else:
-            # Initialize hidden state if not provided
-            if hidden is None:
-                h_0 = torch.zeros(
-                    self.lstm_layers,
-                    batch_size,
-                    self.hidden_dim,
-                    device=target_sequence.device,
-                )
-                c_0 = torch.zeros(
-                    self.lstm_layers,
-                    batch_size,
-                    self.hidden_dim,
-                    device=target_sequence.device,
-                )
-                hidden = (h_0, c_0)
-
-            # Apply dropout to the embedded tokens
-            embedded = self.dropout_layer(embedded)
-
-            # Process one time step at a time to apply attention
-            outputs = []
-            h, c = hidden
-
-            for t in range(seq_length):
-                # Get the current token embedding
-                current_input = embedded[:, t, :].unsqueeze(
-                    1
-                )  # (batch_size, 1, embedding_dim)
-
-                # Apply attention
-                context = self.attention(
-                    h[-1].unsqueeze(1), encoder_output.unsqueeze(1)
-                )
-
-                # Concatenate with current token embedding
-                lstm_input = torch.cat([current_input, context], dim=2)
-
-                # Pass through LSTM
-                lstm_output, (h, c) = self.lstm(lstm_input, (h, c))
-
-                # Apply dropout
-                lstm_output = self.dropout_layer(lstm_output)
-
-                # Project to vocabulary size
-                output_t = self.output_layer(lstm_output)
-                outputs.append(output_t)
-
-            # Stack outputs
-            output = torch.cat(outputs, dim=1)  # (batch_size, seq_length, vocab_size)
-
-        return output
+        embedded = self.dropout_layer(embedded)
+        outputs = []
+        h, c = hidden
+        for t in range(seq_length):
+            current_input = embedded[:, t, :].unsqueeze(1)
+            context = self.attention(h[-1].unsqueeze(1), encoder_output)
+            lstm_output, (h, c) = self.lstm(torch.cat([current_input, context], dim=2), (h, c))
+            outputs.append(self.output_layer(self.dropout_layer(lstm_output)))
+        return torch.cat(outputs, dim=1)
 
     def decode_step(
         self, encoder_output: torch.Tensor, input_token: torch.Tensor, hidden=None
     ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        """
-        Single decoding step for inference.
-
-        Args:
-            encoder_output: Output from the encoder, shape (batch_size, embedding_dim)
-            input_token: Input token tensor, shape (batch_size, 1)
-            hidden: Hidden state from previous step
-
-        Returns:
-            Tuple of (output_logits, new_hidden_state)
-        """
         batch_size = input_token.shape[0]
-
-        # Get token embedding
-        embedded = self.embedding(input_token)  # (batch_size, 1, embedding_dim)
-
-        if not self.use_attention:
-            # No Attention
-            encoder_output_repeated = encoder_output.unsqueeze(1)
-
-            # --- Sanity Check Dimensions Before Concatenation ---
-            if embedded.ndim != 3 or encoder_output_repeated.ndim != 3:
-                raise RuntimeError(
-                    f"Shape mismatch before cat! embedded: {embedded.shape}, "
-                    f"encoder_output_repeated: {encoder_output_repeated.shape}"
-                )
-            # ----------------------------------------------------
-
-            lstm_input = torch.cat([embedded, encoder_output_repeated], dim=2)
-
-            # Initialize hidden state if not provided
-            if hidden is None:
-                h_0 = torch.zeros(
-                    self.lstm_layers,
-                    batch_size,
-                    self.hidden_dim,
-                    device=input_token.device,
-                )
-                c_0 = torch.zeros(
-                    self.lstm_layers,
-                    batch_size,
-                    self.hidden_dim,
-                    device=input_token.device,
-                )
-                hidden = (h_0, c_0)
-
-            # Pass through LSTM
-            lstm_output, hidden = self.lstm(lstm_input, hidden)
-
-            # Project to vocabulary size
-            output = self.output_layer(lstm_output)
+        embedded = self.embedding(input_token)
+        if encoder_output.dim() == 2:
+            encoder_output = encoder_output.unsqueeze(1)
+        if hidden is None:
+            h_0 = torch.zeros(self.lstm_layers, batch_size, self.hidden_dim, device=input_token.device)
+            c_0 = torch.zeros(self.lstm_layers, batch_size, self.hidden_dim, device=input_token.device)
+            hidden = (h_0, c_0)
+        h, c = hidden
+        if self.use_attention:
+            context = self.attention(h[-1].unsqueeze(1), encoder_output)
         else:
-            # Initialize hidden state if not provided
-            if hidden is None:
-                h_0 = torch.zeros(
-                    self.lstm_layers,
-                    batch_size,
-                    self.hidden_dim,
-                    device=input_token.device,
-                )
-                c_0 = torch.zeros(
-                    self.lstm_layers,
-                    batch_size,
-                    self.hidden_dim,
-                    device=input_token.device,
-                )
-                hidden = (h_0, c_0)
-
-            h, c = hidden
-
-            # Apply attention
-            context = self.attention(h[-1].unsqueeze(1), encoder_output.unsqueeze(1))
-
-            # Concatenate with current token embedding
-            lstm_input = torch.cat([embedded, context], dim=2)
-
-            # Pass through LSTM
-            lstm_output, (h, c) = self.lstm(lstm_input, (h, c))
-
-            # Project to vocabulary size
-            output = self.output_layer(lstm_output)
-
-            hidden = (h, c)
-
-        return output, hidden
+            context = encoder_output.mean(dim=1, keepdim=True)
+        lstm_output, hidden = self.lstm(torch.cat([embedded, context], dim=2), hidden)
+        return self.output_layer(lstm_output), hidden
 
 
 class Attention(nn.Module):
-    """
-    Attention mechanism for the decoder.
-
-    This attention layer allows the decoder to focus on different parts
-    of the encoder output at each decoding step.
-    """
+    """Additive attention over an encoder sequence."""
 
     def __init__(self, hidden_dim: int, encoder_dim: int):
-        """
-        Initialize the attention layer.
-
-        Args:
-            hidden_dim: Dimension of the decoder hidden state
-            encoder_dim: Dimension of the encoder output
-        """
-        super(Attention, self).__init__()
-
-        self.hidden_dim = hidden_dim
-        self.encoder_dim = encoder_dim
-
-        # Attention layers
+        super().__init__()
         self.attn = nn.Linear(hidden_dim + encoder_dim, hidden_dim)
         self.v = nn.Linear(hidden_dim, 1, bias=False)
 
-    def forward(
-        self, hidden: torch.Tensor, encoder_outputs: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Forward pass of the attention mechanism.
-
-        Args:
-            hidden: Decoder hidden state, shape (batch_size, 1, hidden_dim)
-            encoder_outputs: Encoder outputs, shape (batch_size, seq_length, encoder_dim)
-
-        Returns:
-            Context vector, shape (batch_size, 1, encoder_dim)
-        """
-        batch_size = encoder_outputs.shape[0]
+    def forward(self, hidden: torch.Tensor, encoder_outputs: torch.Tensor) -> torch.Tensor:
         src_len = encoder_outputs.shape[1]
-
-        # Repeat decoder hidden state
         hidden = hidden.repeat(1, src_len, 1)
-
-        # Calculate energy
         energy = torch.tanh(self.attn(torch.cat((hidden, encoder_outputs), dim=2)))
-
-        # Calculate attention weights
-        attention = self.v(energy).squeeze(2)
-
-        # Apply softmax to get attention weights
-        attention_weights = F.softmax(attention, dim=1).unsqueeze(1)
-
-        # Weighted sum of encoder outputs
-        context = torch.bmm(attention_weights, encoder_outputs)
-
-        return context
+        attention_weights = F.softmax(self.v(energy).squeeze(2), dim=1).unsqueeze(1)
+        return torch.bmm(attention_weights, encoder_outputs)

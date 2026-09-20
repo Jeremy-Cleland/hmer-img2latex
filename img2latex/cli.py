@@ -119,8 +119,11 @@ def train(
     seed: int = typer.Option(42, help="Random seed for reproducibility"),
 ):
     """Train the image-to-LaTeX model."""
-    # Start a spinner
-    with console.status("[bold green]Setting up training...", spinner="dots"):
+    # Rich Live spinners plus OpenMP/MPS segfault on macOS, so skip the spinner.
+    console.print("[bold green]Setting up training...[/bold green]")
+    from contextlib import nullcontext
+
+    with nullcontext():
         # Set random seed
         set_seed(seed)
 
@@ -178,14 +181,19 @@ def train(
 
         logger.info(f"Saved configuration to {config_save_path}")
 
-        # Create tokenizer
+        # Create tokenizer on the training split only (no val/test leakage)
         tokenizer = LaTeXTokenizer(max_sequence_length=config["data"]["max_seq_length"])
-
-        # Fit tokenizer on formulas file
         formulas_path = os.path.join(
             config["data"]["data_dir"], config["data"]["formulas_file"]
         )
-        tokenizer.fit_on_formulas_file(formulas_path)
+        train_split_path = os.path.join(
+            config["data"]["data_dir"], config["data"]["train_file"]
+        )
+        tokenizer.fit_on_split(
+            formulas_path,
+            train_split_path,
+            min_freq=config["data"].get("min_freq", 5),
+        )
 
         # Create data loaders
         data_loaders = create_data_loaders(
@@ -199,21 +207,20 @@ def train(
         decoder_params = config["model"]["decoder"]
         embedding_dim = config["model"]["embedding_dim"]
 
-        # Get the correct encoder params based on model type
-        if config["model"]["name"] == "cnn_lstm":
-            encoder_params = encoder_params["cnn"]
-        else:
+        if config["model"]["name"].startswith("resnet"):
             encoder_params = encoder_params["resnet"]
+        else:
+            encoder_params = encoder_params["cnn"]
 
-        # Set embedding dimension
+        encoder_params = dict(encoder_params)
         encoder_params["embedding_dim"] = embedding_dim
 
-        # Create model
         model = Seq2SeqModel(
             model_type=config["model"]["name"],
             vocab_size=tokenizer.vocab_size,
             encoder_params=encoder_params,
             decoder_params=decoder_params,
+            pad_token_id=tokenizer.pad_token_id,
         )
 
         # Create trainer
@@ -255,7 +262,7 @@ def predict(
     checkpoint_path: str = typer.Argument(..., help="Path to trained model checkpoint"),
     image_path: str = typer.Argument(..., help="Path to image file"),
     beam_size: int = typer.Option(
-        0, help="Beam size for beam search (0 for greedy search)"
+        5, help="Beam size for beam search (1 for greedy search)"
     ),
     max_length: int = typer.Option(
         141, help="Maximum length of the generated sequence"
@@ -312,6 +319,38 @@ def predict(
     console.print(f"[cyan]{latex}[/cyan]")
 
 
+@app.command("build-cache")
+def build_cache(
+    config_path: str = typer.Option(
+        "img2latex/configs/config.yaml", help="Path to configuration file"
+    ),
+    force: bool = typer.Option(False, help="Rebuild even if a cache already exists"),
+):
+    """Preprocess all split images into a uint8 memmap cache."""
+    from img2latex.data.cache import build_image_cache
+
+    config = load_config(config_path)
+    data_cfg = config["data"]
+    model_cfg = config["model"]
+    if model_cfg["name"].startswith("resnet"):
+        enc = model_cfg["encoder"]["resnet"]
+    else:
+        enc = model_cfg["encoder"]["cnn"]
+    paths = build_image_cache(
+        data_dir=data_cfg["data_dir"],
+        img_dir=data_cfg.get("img_dir", "img"),
+        split_files=[
+            data_cfg["train_file"],
+            data_cfg["validate_file"],
+            data_cfg["test_file"],
+        ],
+        img_size=(enc.get("img_height", 64), enc.get("img_width", 512)),
+        cache_dir=data_cfg.get("cache_dir"),
+        force=force,
+    )
+    console.print(f"[green]Image cache ready: {paths['images']}[/green]")
+
+
 @app.command()
 def evaluate(
     checkpoint_path: str = typer.Argument(..., help="Path to trained model checkpoint"),
@@ -324,7 +363,7 @@ def evaluate(
         None, help="Number of samples to evaluate (None for all)"
     ),
     beam_size: int = typer.Option(
-        0, help="Beam size for beam search (0 for greedy search)"
+        5, help="Beam size for beam search (1 for greedy search)"
     ),
     device: Optional[str] = typer.Option(
         None, help="Device to use for evaluation (cpu, cuda, mps)"
@@ -460,7 +499,9 @@ def evaluate(
                 images=images,
                 beam_size=beam_size,
                 max_length=predictor.tokenizer.max_sequence_length,
-                batch_size=len(images),  # Process the whole batch at once
+                batch_size=len(images),
+                widths=batch.get("widths"),
+                heights=batch.get("heights"),
             )
 
             # Process predictions and targets
@@ -492,11 +533,19 @@ def evaluate(
     # Calculate metrics
     from img2latex.training.metrics import calculate_metrics
 
-    metrics = calculate_metrics(all_predictions, all_targets)
+    metrics = calculate_metrics(
+        all_predictions,
+        all_targets,
+        pad_token_id=predictor.tokenizer.pad_token_id,
+        start_token_id=predictor.tokenizer.start_token_id,
+        end_token_id=predictor.tokenizer.end_token_id,
+    )
 
     # Print results
     console.print("[bold green]Evaluation Results:[/bold green]")
     console.print(f"BLEU-4 Score: {metrics['bleu']:.4f}")
+    console.print(f"Exact Match: {metrics['exact_match']:.4f}")
+    console.print(f"Normalized Edit Distance: {metrics['edit_distance']:.4f}")
     console.print(f"Levenshtein Similarity: {metrics['levenshtein']:.4f}")
     console.print(f"Number of Samples: {metrics['batch_size']}")
 

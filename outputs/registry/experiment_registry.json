@@ -280,6 +280,26 @@
     "path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v1",
     "status": "training"
   },
+  "img2latex_transformer": {
+    "creation_time": "2026-09-20 13:47:41",
+    "last_updated": "2026-09-20 13:49:18",
+    "metadata": {},
+    "path": "/Users/jeremy/MyProjects/labs/hmer-img2latex/outputs/img2latex_transformer_v1",
+    "status": "training"
+  },
+  "img2latex_transformer_v1": {
+    "config_path": "/Users/jeremy/MyProjects/labs/hmer-img2latex/outputs/img2latex_transformer_v1/config.yaml",
+    "creation_time": "2026-09-20 13:49:18",
+    "description": "Image-to-LaTeX model: cnn_transformer d_model=256. lr=0.0003, epochs=30",
+    "last_updated": "2026-09-20 13:49:18",
+    "metrics": {},
+    "path": "/Users/jeremy/MyProjects/labs/hmer-img2latex/outputs/img2latex_transformer_v1",
+    "status": "created",
+    "tags": [
+      "cnn_transformer",
+      "lr_0.0003"
+    ]
+  },
   "img2latex_v1": {
     "config_path": "/Users/jeremy/hmer-im2latex/outputs/img2latex_v1/config.yaml",
     "creation_time": "2025-04-16 12:00:37",
@@ -905,6 +925,19 @@
     "tags": [
       "resnet_lstm",
       "lr_0.001"
+    ]
+  },
+  "smoke_transformer_v1": {
+    "config_path": "/Users/jeremy/MyProjects/labs/hmer-img2latex/outputs/smoke_transformer_v1/config.yaml",
+    "creation_time": "2026-09-20 13:46:15",
+    "description": "Image-to-LaTeX model: cnn_transformer d_model=256. lr=0.0003, epochs=1",
+    "last_updated": "2026-09-20 13:46:15",
+    "metrics": {},
+    "path": "/Users/jeremy/MyProjects/labs/hmer-img2latex/outputs/smoke_transformer_v1",
+    "status": "created",
+    "tags": [
+      "cnn_transformer",
+      "lr_0.0003"
     ]
   }
 }
