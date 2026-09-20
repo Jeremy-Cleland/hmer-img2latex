@@ -4,7 +4,7 @@ channels:
   - defaults
 dependencies:
   # Python 3.11: official PyTorch macOS ARM wheels (with MPS) target 3.11/3.12
-  - python=3.11
+  - python=3.14.7
   - pip
   - numpy
   - pandas
