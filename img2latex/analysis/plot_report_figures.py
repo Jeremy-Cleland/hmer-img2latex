@@ -30,18 +30,28 @@ def load_metrics(metrics_file: Path) -> pd.DataFrame:
     with open(metrics_file, "r") as f:
         metrics_data = json.load(f)
 
-    # Check if the metrics are in the 'steps' format
     if "steps" in metrics_data:
-        # Extract data from each step
         data = []
         for step, metrics in metrics_data["steps"].items():
             metrics["step"] = int(step)
             data.append(metrics)
-
         return pd.DataFrame(data)
-    else:
-        # Handle other formats if needed
-        raise ValueError("Unsupported metrics format")
+
+    if isinstance(metrics_data, dict) and metrics_data:
+        rows = []
+        for epoch_key, metrics in metrics_data.items():
+            if not isinstance(metrics, dict):
+                continue
+            row = dict(metrics)
+            try:
+                row["epoch"] = int(epoch_key)
+            except (TypeError, ValueError):
+                row.setdefault("epoch", row.get("epoch", 0))
+            rows.append(row)
+        if rows:
+            return pd.DataFrame(rows).sort_values("epoch")
+
+    raise ValueError("Unsupported metrics format")
 
 
 def plot_training_curves(
@@ -195,12 +205,18 @@ def plot_metrics_correlation(
 
     # Select relevant columns for correlation
     corr_cols = [
-        "train_loss",
-        "val_loss",
-        "train_acc",
-        "val_acc",
-        "val_bleu",
-        "val_levenshtein",
+        col
+        for col in [
+            "train_loss",
+            "val_loss",
+            "train_acc",
+            "val_acc",
+            "val_bleu",
+            "val_levenshtein",
+            "val_exact_match",
+            "val_edit_distance",
+        ]
+        if col in metrics_df.columns
     ]
 
     corr_df = metrics_df[corr_cols]

@@ -1,83 +1,48 @@
 #!/usr/bin/env python
-"""
-Test script for checking encoder compatibility with new image dimensions.
-"""
+"""Encoder unit tests for the spatial-grid CNN/ResNet backends."""
 
 import torch
 
 from img2latex.model.encoder import CNNEncoder, ResNetEncoder
 
 
-def test_cnn_encoder():
-    """Test CNN encoder with the new image dimensions."""
-    # Setup
-    img_height = 64
-    img_width = 800
-    channels = 1
-    batch_size = 4
+def test_cnn_encoder_grid_shape():
+    img_height, img_width, channels = 64, 512, 1
+    batch_size = 2
     embedding_dim = 256
-
-    # Create test input
-    test_input = torch.randn(batch_size, channels, img_height, img_width)
-
-    # Create CNN encoder
     encoder = CNNEncoder(
         img_height=img_height,
         img_width=img_width,
         channels=channels,
         embedding_dim=embedding_dim,
     )
-
-    # Test forward pass
-    output = encoder(test_input)
-
-    # Check output shape
-    expected_shape = (batch_size, embedding_dim)
-    actual_shape = output.shape
-
-    print("CNN Encoder Test:")
-    print(f"  Input shape: {test_input.shape}")
-    print(f"  Output shape: {actual_shape}")
-    print(f"  Expected shape: {expected_shape}")
-    print(f"  Test {'passed' if actual_shape == expected_shape else 'failed'}")
-
-
-def test_resnet_encoder():
-    """Test ResNet encoder with the new image dimensions."""
-    # Setup
-    img_height = 64
-    img_width = 800
-    channels = 3
-    batch_size = 4
-    embedding_dim = 256
-
-    # Create test input
     test_input = torch.randn(batch_size, channels, img_height, img_width)
+    valid_widths = torch.tensor([400, 512])
+    memory, mask = encoder(test_input, valid_widths=valid_widths)
+    grid_h, grid_w = img_height // 8, img_width // 8
+    assert memory.shape == (batch_size, grid_h * grid_w, embedding_dim)
+    assert mask is not None
+    assert mask.shape == (batch_size, grid_h * grid_w)
+    assert mask.dtype == torch.bool
+    assert mask[1].sum() == 0
+    assert mask[0].any()
 
-    # Create ResNet encoder
+
+def test_resnet_encoder_grid_shape():
+    img_height, img_width, channels = 64, 512, 3
+    batch_size = 1
+    embedding_dim = 256
     encoder = ResNetEncoder(
         img_height=img_height,
         img_width=img_width,
         channels=channels,
+        model_name="resnet18",
         embedding_dim=embedding_dim,
+        freeze_backbone=True,
     )
-
-    # Test forward pass
-    output = encoder(test_input)
-
-    # Check output shape
-    expected_shape = (batch_size, embedding_dim)
-    actual_shape = output.shape
-
-    print("ResNet Encoder Test:")
-    print(f"  Input shape: {test_input.shape}")
-    print(f"  Output shape: {actual_shape}")
-    print(f"  Expected shape: {expected_shape}")
-    print(f"  Test {'passed' if actual_shape == expected_shape else 'failed'}")
-
-
-if __name__ == "__main__":
-    print("Testing encoder compatibility with new image dimensions (64x800)...")
-    test_cnn_encoder()
-    test_resnet_encoder()
-    print("Tests completed.")
+    test_input = torch.randn(batch_size, channels, img_height, img_width)
+    memory, mask = encoder(test_input)
+    assert memory.dim() == 3
+    assert memory.shape[0] == batch_size
+    assert memory.shape[2] == embedding_dim
+    assert mask is None

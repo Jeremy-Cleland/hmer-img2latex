@@ -1,6 +1,7 @@
 from img2latex.training.metrics import (
     bleu_n_score,
     calculate_metrics,
+    corpus_bleu_score,
     levenshtein_distance,
     masked_accuracy,
 )

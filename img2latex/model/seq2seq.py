@@ -1,13 +1,14 @@
 """
-Sequence-to-sequence model for image-to-LaTeX conversion.
+Sequence-to-sequence model: spatial encoder + Transformer decoder.
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
-from img2latex.model.decoder import LSTMDecoder
+from img2latex.model.decoder import TransformerDecoder
 from img2latex.model.encoder import CNNEncoder, ResNetEncoder
 from img2latex.utils.logging import get_logger
 
@@ -15,49 +16,40 @@ logger = get_logger(__name__, log_level="INFO")
 
 
 class Seq2SeqModel(nn.Module):
-    """
-    Sequence-to-sequence model for image-to-LaTeX conversion.
-
-    This model consists of an encoder (CNN or ResNet) that processes the input image
-    and a decoder (LSTM) that generates the output LaTeX sequence.
-    """
+    """Image encoder plus Transformer decoder for LaTeX generation."""
 
     def __init__(
         self,
-        model_type: str = "cnn_lstm",
+        model_type: str = "cnn_transformer",
         vocab_size: int = None,
         encoder_params: Dict = None,
         decoder_params: Dict = None,
+        pad_token_id: int = 0,
     ):
-        """
-        Initialize the sequence-to-sequence model.
-
-        Args:
-            model_type: Type of model to use, either "cnn_lstm" or "resnet_lstm"
-            vocab_size: Size of the vocabulary
-            encoder_params: Parameters for the encoder
-            decoder_params: Parameters for the decoder
-        """
-        super(Seq2SeqModel, self).__init__()
-
-        # Set default parameters if not provided
-        if encoder_params is None:
-            encoder_params = {}
-        if decoder_params is None:
-            decoder_params = {}
-
-        # Set default vocab_size if not provided
+        super().__init__()
+        encoder_params = encoder_params or {}
+        decoder_params = decoder_params or {}
         if vocab_size is None:
-            vocab_size = 100  # Fallback only if no value provided
+            vocab_size = 100
 
-        # Get embedding dimension from encoder params
         embedding_dim = encoder_params.get("embedding_dim", 256)
+        self.model_type = model_type
+        self.vocab_size = vocab_size
+        self.pad_token_id = pad_token_id
 
-        # Initialize encoder
-        if model_type == "cnn_lstm":
+        if model_type.startswith("resnet"):
+            self.encoder = ResNetEncoder(
+                img_height=encoder_params.get("img_height", 64),
+                img_width=encoder_params.get("img_width", 512),
+                channels=encoder_params.get("channels", 3),
+                model_name=encoder_params.get("model_name", "resnet18"),
+                embedding_dim=embedding_dim,
+                freeze_backbone=encoder_params.get("freeze_backbone", False),
+            )
+        else:
             self.encoder = CNNEncoder(
-                img_height=encoder_params.get("img_height", 50),
-                img_width=encoder_params.get("img_width", 200),
+                img_height=encoder_params.get("img_height", 64),
+                img_width=encoder_params.get("img_width", 512),
                 channels=encoder_params.get("channels", 1),
                 conv_filters=encoder_params.get("conv_filters", [32, 64, 128]),
                 kernel_size=encoder_params.get("kernel_size", 3),
@@ -65,61 +57,62 @@ class Seq2SeqModel(nn.Module):
                 padding=encoder_params.get("padding", "same"),
                 embedding_dim=embedding_dim,
             )
-        elif model_type == "resnet_lstm":
-            self.encoder = ResNetEncoder(
-                img_height=encoder_params.get("img_height", 224),
-                img_width=encoder_params.get("img_width", 224),
-                channels=encoder_params.get("channels", 3),
-                model_name=encoder_params.get("model_name", "resnet50"),
-                embedding_dim=embedding_dim,
-                freeze_backbone=encoder_params.get("freeze_backbone", True),
-            )
-        else:
-            raise ValueError(
-                f"Invalid model type: {model_type}. Expected 'cnn_lstm' or 'resnet_lstm'."
-            )
 
-        # Initialize decoder
-        self.decoder = LSTMDecoder(
+        self.decoder = TransformerDecoder(
             vocab_size=vocab_size,
             embedding_dim=embedding_dim,
-            hidden_dim=decoder_params.get("hidden_dim", 256),
-            max_seq_length=decoder_params.get("max_seq_length", 150),
-            lstm_layers=decoder_params.get("lstm_layers", 1),
+            hidden_dim=decoder_params.get("hidden_dim", embedding_dim),
+            nhead=decoder_params.get("nhead", 8),
+            num_layers=decoder_params.get("num_layers", decoder_params.get("lstm_layers", 4)),
+            dim_feedforward=decoder_params.get("dim_feedforward", 1024),
             dropout=decoder_params.get("dropout", 0.1),
-            attention=decoder_params.get("attention", False),
+            max_seq_length=decoder_params.get("max_seq_length", 141),
+            pad_token_id=pad_token_id,
         )
+        logger.info("Initialized %s model with vocab size %s", model_type, vocab_size)
 
-        self.model_type = model_type
-        self.vocab_size = vocab_size
-
-        logger.info(f"Initialized {model_type} model with vocab size: {vocab_size}")
+    def encode(
+        self,
+        images: torch.Tensor,
+        valid_widths: Optional[torch.Tensor] = None,
+        valid_heights: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        return self.encoder(images, valid_widths=valid_widths, valid_heights=valid_heights)
 
     def forward(
-        self, images: torch.Tensor, target_sequences: torch.Tensor
+        self,
+        images: torch.Tensor,
+        target_sequences: torch.Tensor,
+        valid_widths: Optional[torch.Tensor] = None,
+        valid_heights: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """
-        Forward pass through the sequence-to-sequence model (training mode).
-
-        Args:
-            images: Input images, shape (batch_size, channels, height, width)
-            target_sequences: Target LaTeX sequences, shape (batch_size, seq_length)
-
-        Returns:
-            Output logits, shape (batch_size, seq_length, vocab_size)
-        """
-        # Encode the images
-        encoder_output = self.encoder(images)
-
-        # Decode the sequences
-        decoder_output = self.decoder(
-            encoder_output=encoder_output,
-            target_sequence=target_sequences[
-                :, :-1
-            ],  # Exclude the last token (end token)
+        memory, mem_mask = self.encode(images, valid_widths, valid_heights)
+        tgt = target_sequences[:, :-1]
+        tgt_pad = tgt.eq(self.pad_token_id)
+        return self.decoder(
+            memory=memory,
+            tgt_tokens=tgt,
+            memory_key_padding_mask=mem_mask,
+            tgt_key_padding_mask=tgt_pad,
         )
 
-        return decoder_output
+    def generate(
+        self,
+        images: torch.Tensor,
+        start_token_id: int,
+        end_token_id: int,
+        max_length: int = 141,
+        beam_size: int = 1,
+        length_penalty: float = 0.7,
+        valid_widths: Optional[torch.Tensor] = None,
+        valid_heights: Optional[torch.Tensor] = None,
+    ) -> List[List[int]]:
+        memory, mem_mask = self.encode(images, valid_widths, valid_heights)
+        if beam_size and beam_size > 1:
+            return self._beam_search(
+                memory, mem_mask, start_token_id, end_token_id, max_length, beam_size, length_penalty
+            )
+        return self._greedy_search(memory, mem_mask, start_token_id, end_token_id, max_length)
 
     def inference(
         self,
@@ -131,168 +124,141 @@ class Seq2SeqModel(nn.Module):
         top_k: int = None,
         top_p: float = None,
         beam_size: int = None,
+        length_penalty: float = 0.7,
+        valid_widths: Optional[torch.Tensor] = None,
+        valid_heights: Optional[torch.Tensor] = None,
     ) -> List[int]:
-        """
-        Generate a LaTeX sequence for an input image (inference mode).
-
-        Args:
-            image: Input image, shape (batch_size, channels, height, width)
-            start_token_id: ID of the start token
-            end_token_id: ID of the end token
-            max_length: Maximum length of the generated sequence
-            temperature: Softmax temperature (higher values produce more diverse outputs)
-            top_k: If > 0, only sample from the top k most probable tokens
-            top_p: If > 0.0, only sample from the top tokens with cumulative probability >= top_p
-            beam_size: If > 0, use beam search with the specified beam size
-
-        Returns:
-            List of token IDs for the generated sequence
-        """
-        # Set default values if not provided
         if max_length is None:
-            max_length = 150  # Fallback only if config value not passed
-        if temperature is None:
-            temperature = 1.0  # Fallback only if config value not passed
-        if top_k is None:
-            top_k = 0  # Fallback only if config value not passed
-        if top_p is None:
-            top_p = 0.0  # Fallback only if config value not passed
+            max_length = 141
         if beam_size is None:
-            beam_size = 0  # Fallback only if config value not passed
+            beam_size = 0
+        sequences = self.generate(
+            images=image,
+            start_token_id=start_token_id,
+            end_token_id=end_token_id,
+            max_length=max_length,
+            beam_size=max(beam_size, 1),
+            length_penalty=length_penalty,
+            valid_widths=valid_widths,
+            valid_heights=valid_heights,
+        )
+        return sequences[0] if sequences else []
 
-        # Encode the image
-        encoder_output = self.encoder(image)
-
-        # Handle batch size 1 case for inference
-        if encoder_output.dim() == 1:
-            encoder_output = encoder_output.unsqueeze(0)
-
-        batch_size = encoder_output.shape[0]
-        device = encoder_output.device
-
-        if beam_size > 0:
-            return self._beam_search(
-                encoder_output=encoder_output,
-                start_token_id=start_token_id,
-                end_token_id=end_token_id,
-                max_length=max_length,
-                beam_size=beam_size,
-            )
-        else:
-            return self._greedy_search(
-                encoder_output=encoder_output,
-                start_token_id=start_token_id,
-                end_token_id=end_token_id,
-                max_length=max_length,
-                temperature=temperature,
-                top_k=top_k,
-                top_p=top_p,
-            )
-    
     def _greedy_search(
         self,
-        encoder_output: torch.Tensor,
+        memory: torch.Tensor,
+        mem_mask: Optional[torch.Tensor],
         start_token_id: int,
         end_token_id: int,
         max_length: int,
-        temperature: float,
-        top_k: int,
-        top_p: float,
-    ) -> List[int]:
-        """Greedy decoding: pick highest-probability token at each step."""
-        device = encoder_output.device
-        batch_size = encoder_output.size(0)
-        # Initialize input with start tokens
-        input_tokens = torch.full((batch_size, 1), start_token_id, dtype=torch.long, device=device)
-        hidden = None
-        sequences = [[start_token_id] for _ in range(batch_size)]
+    ) -> List[List[int]]:
+        batch_size = memory.size(0)
+        device = memory.device
+        tokens = torch.full((batch_size, 1), start_token_id, dtype=torch.long, device=device)
+        finished = torch.zeros(batch_size, dtype=torch.bool, device=device)
 
         for _ in range(max_length):
-            output, hidden = self.decoder.decode_step(encoder_output, input_tokens, hidden)
-            logits = output.squeeze(1)  # (batch_size, vocab_size)
-            if temperature != 1.0:
-                logits = logits / temperature
-            next_tokens = torch.argmax(logits, dim=-1)  # (batch_size,)
-            input_tokens = next_tokens.unsqueeze(1)
-            for i in range(batch_size):
-                sequences[i].append(next_tokens[i].item())
-            # Stop if all sequences have generated end token
-            if all(tok == end_token_id for tok in next_tokens.tolist()):
+            tgt_pad = tokens.eq(self.pad_token_id)
+            logits = self.decoder(
+                memory=memory,
+                tgt_tokens=tokens,
+                memory_key_padding_mask=mem_mask,
+                tgt_key_padding_mask=tgt_pad,
+            )
+            next_tokens = logits[:, -1].argmax(dim=-1)
+            next_tokens = torch.where(finished, torch.full_like(next_tokens, self.pad_token_id), next_tokens)
+            tokens = torch.cat([tokens, next_tokens.unsqueeze(1)], dim=1)
+            finished = finished | next_tokens.eq(end_token_id)
+            if torch.all(finished):
                 break
 
-        # Post-process single example
-        seq = sequences[0] if batch_size == 1 else sequences
-        if batch_size == 1:
-            # Remove start token
-            if seq and seq[0] == start_token_id:
-                seq = seq[1:]
-            # Truncate at end token
-            if end_token_id in seq:
-                seq = seq[: seq.index(end_token_id)]
-        return seq
+        return [_strip_special(seq.tolist(), start_token_id, end_token_id, self.pad_token_id) for seq in tokens]
 
     def _beam_search(
         self,
-        encoder_output: torch.Tensor,
+        memory: torch.Tensor,
+        mem_mask: Optional[torch.Tensor],
         start_token_id: int,
         end_token_id: int,
         max_length: int,
         beam_size: int,
-    ) -> List[int]:
-        """Simple beam search decoding (only supports batch_size=1)."""
-        device = encoder_output.device
-        if encoder_output.size(0) != 1:
-            return self._greedy_search(
-                encoder_output, start_token_id, end_token_id, max_length, 1.0, 0, 0.0
+        length_penalty: float,
+    ) -> List[List[int]]:
+        batch_size, src_len, d_model = memory.shape
+        device = memory.device
+        vocab = self.vocab_size
+
+        memory = (
+            memory.unsqueeze(1)
+            .expand(batch_size, beam_size, src_len, d_model)
+            .reshape(batch_size * beam_size, src_len, d_model)
+        )
+        if mem_mask is not None:
+            mem_mask = (
+                mem_mask.unsqueeze(1)
+                .expand(batch_size, beam_size, src_len)
+                .reshape(batch_size * beam_size, src_len)
             )
 
-        # Beam entries: list of dicts {'tokens': [...], 'hidden': hidden_state, 'score': float}
-        beams = [{"tokens": [start_token_id], "hidden": None, "score": 0.0}]
-        completed = []
+        sequences = torch.full(
+            (batch_size * beam_size, 1), start_token_id, dtype=torch.long, device=device
+        )
+        scores = torch.full((batch_size, beam_size), float("-inf"), device=device)
+        scores[:, 0] = 0.0
+        finished = torch.zeros(batch_size, beam_size, dtype=torch.bool, device=device)
 
         for _ in range(max_length):
-            candidates = []
-            for beam in beams:
-                tokens = beam["tokens"]
-                last_token = tokens[-1]
-                if last_token == end_token_id:
-                    completed.append(beam)
-                    continue
-                input_token = torch.tensor([[last_token]], dtype=torch.long, device=device)
-                output, new_hidden = self.decoder.decode_step(
-                    encoder_output, input_token, beam["hidden"]
-                )
-                logits = output.squeeze(1)  # (1, vocab_size)
-                log_probs = torch.log_softmax(logits, dim=-1).squeeze(0)
-                topk_probs, topk_idx = torch.topk(log_probs, beam_size)
-                for log_p, idx in zip(topk_probs.tolist(), topk_idx.tolist()):
-                    candidates.append(
-                        {
-                            "tokens": tokens + [idx],
-                            "hidden": (new_hidden[0].clone(), new_hidden[1].clone()),
-                            "score": beam["score"] + log_p,
-                        }
-                    )
-            if not candidates:
-                break
-            # Keep top beams
-            candidates = sorted(candidates, key=lambda b: b["score"], reverse=True)
-            beams = candidates[:beam_size]
-            # Early exit if all beams ended
-            if all(b["tokens"][-1] == end_token_id for b in beams):
-                completed.extend(beams)
+            tgt_pad = sequences.eq(self.pad_token_id)
+            logits = self.decoder(
+                memory=memory,
+                tgt_tokens=sequences,
+                memory_key_padding_mask=mem_mask,
+                tgt_key_padding_mask=tgt_pad,
+            )
+            log_probs = F.log_softmax(logits[:, -1], dim=-1).view(batch_size, beam_size, vocab)
+
+            if finished.any():
+                mask = finished.unsqueeze(-1)
+                ninf = torch.full_like(log_probs, float("-inf"))
+                finished_dist = ninf.clone()
+                finished_dist[:, :, end_token_id] = 0.0
+                log_probs = torch.where(mask, finished_dist, log_probs)
+
+            cand_scores = scores.unsqueeze(-1) + log_probs
+            cand_scores = cand_scores.view(batch_size, beam_size * vocab)
+            topk_scores, topk_idx = torch.topk(cand_scores, beam_size, dim=-1)
+            beam_idx = topk_idx // vocab
+            token_idx = topk_idx % vocab
+
+            base = (torch.arange(batch_size, device=device) * beam_size).unsqueeze(1)
+            gather_idx = (base + beam_idx).reshape(-1)
+            sequences = sequences[gather_idx]
+            sequences = torch.cat([sequences, token_idx.reshape(-1, 1)], dim=1)
+            scores = topk_scores
+            finished = finished.view(batch_size * beam_size)[gather_idx].view(batch_size, beam_size)
+            finished = finished | token_idx.eq(end_token_id)
+            if torch.all(finished):
                 break
 
-        best_beam = None
-        if completed:
-            best_beam = max(completed, key=lambda b: b["score"])
-        else:
-            best_beam = beams[0]
-        seq = best_beam["tokens"]
-        # Remove start token
-        if seq and seq[0] == start_token_id:
-            seq = seq[1:]
-        # Truncate at end token
-        if end_token_id in seq:
-            seq = seq[: seq.index(end_token_id)]
-        return seq
+        lengths = (sequences.ne(self.pad_token_id).sum(dim=1).view(batch_size, beam_size).float())
+        lengths = torch.clamp(lengths, min=1.0)
+        penalized = scores / ((5.0 + lengths) / 6.0).pow(length_penalty)
+        penalized = penalized.masked_fill(~finished & (lengths < 2), float("-inf"))
+        best = penalized.argmax(dim=-1)
+        sequences = sequences.view(batch_size, beam_size, -1)
+        result = []
+        for b in range(batch_size):
+            seq = sequences[b, best[b]].tolist()
+            result.append(_strip_special(seq, start_token_id, end_token_id, self.pad_token_id))
+        return result
+
+
+def _strip_special(seq: List[int], start_id: int, end_id: int, pad_id: int) -> List[int]:
+    cleaned = []
+    for token in seq:
+        if token in (start_id, pad_id):
+            continue
+        if token == end_id:
+            break
+        cleaned.append(token)
+    return cleaned

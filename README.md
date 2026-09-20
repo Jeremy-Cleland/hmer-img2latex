@@ -6,253 +6,127 @@
 
 ## Overview
 
-The Image to LaTeX (img2latex) project implements a deep learning-based system for converting images of mathematical expressions into LaTeX code. This technology addresses a significant challenge in digital document processing: transforming visual representations of mathematical formulas into their corresponding markup representation, which is essential for editing, searching, and accessibility.
+The Image to LaTeX (`img2latex`) project converts images of printed mathematical expressions into LaTeX. It is trained on the IM2LaTeX-100k dataset.
 
-Mathematical expressions are ubiquitous in scientific, engineering, and academic literature, but transferring them between different formats can be cumbersome. Traditional Optical Character Recognition (OCR) systems often struggle with the complex two-dimensional structure of mathematical formulas. The img2latex project provides an end-to-end solution to automatically recognize and transcribe mathematical expressions from images, significantly reducing the manual effort required for digitizing printed mathematical content.
+The original CNN-LSTM / ResNet-LSTM models reported 62.56% token accuracy and 0.15 BLEU after 25 epochs. Those numbers were **teacher-forced** (ground-truth tokens fed at every step) and the encoder collapsed each image to a single vector, so the attention layer was a no-op. This revision replaces that stack with a spatial CNN encoder and a Transformer decoder, and reports BLEU, exact match, and edit distance from **autoregressive** decoding.
 
-## Performance Metrics
+## Architecture
 
-![Composite Metrics](./outputs/img2latex_v2/plots/composite_metrics.png)
-
-| Metric | Value |
-|--------|-------|
-| Final Accuracy | 62.56% |
-| BLEU Score | 0.1539 |
-| Levenshtein Similarity | 0.2829 |
-| Training Epochs | 25 |
-
-## Features
-
-- Two model architectures:
-  - **CNN-LSTM**: A convolutional neural network encoder with an LSTM decoder
-  - **ResNet-LSTM**: A pre-trained ResNet encoder with an LSTM decoder
-- Multiple decoding strategies:
-  - Greedy search
-  - Beam search (with configurable beam size)
-  - Sampling with temperature/top-k/top-p
-- Comprehensive evaluation using multiple metrics:
-  - Token-level accuracy
-  - BLEU score
-  - Levenshtein similarity
-- Visualization and analysis tools
-- Support for Apple Silicon (MPS acceleration), CUDA, and CPU
-- Command-line interface for training, evaluation, and prediction
-
-## Dataset Analysis
-
-The project uses the IM2LaTeX-100k dataset, which contains over 100,000 images of mathematical expressions paired with their corresponding LaTeX code.
-
-![Size Distribution](./outputs/image_analysis/images/size_distribution.png)
-
-Key dataset statistics:
-- **Total Images**: 103,536
-- **Mean Width**: 319.2 px
-- **Mean Height**: 61.2 px
-- **Mean Aspect Ratio**: 5.79
-- **Most Common Size**: 320×64 px
-- **Color Mode**: RGB (100%)
-
-![Pixel Distribution](./outputs/image_analysis/images/pixel_distribution.png)
-
-Image properties:
-- **Width range**: 128 - 800 pixels
-- **Height range**: 32 - 800 pixels
-- **Aspect ratio range**: 1.00 - 15.00
-- **File format**: All images are RGB
-- **Pixel value range**: 0.0 - 255.0 (uint8)
-- **Mean pixel value**: 242.22
-- **Std dev of pixel values**: 45.70
-
-## Model Architecture
-
-### 1. CNN-LSTM Architecture
-
-The CNN-LSTM model consists of:
-- **Encoder**: A convolutional neural network with three convolutional blocks, each containing:
-  - Conv2D layer (with filters [32, 64, 128])
-  - ReLU activation
-  - MaxPooling layer
-  - The final output is flattened and passed through a dense layer to create the embedding
-- **Decoder**: An LSTM-based decoder that:
-  - Takes the encoder output and previously generated tokens as input
-  - Generates output tokens one at a time
-  - Uses teacher forcing during training (ground truth tokens as input)
-  - Offers optional attention mechanism to focus on different parts of the encoder representation
-
-### 2. ResNet-LSTM Architecture
-
-The ResNet-LSTM model replaces the CNN encoder with a pre-trained ResNet:
-- **Encoder**: A pre-trained ResNet (options include ResNet18, ResNet34, ResNet50, ResNet101, ResNet152) with:
-  - The classification head removed
-  - Option to freeze weights for transfer learning
-  - Final layer adapted to produce embeddings of the desired dimension
-- **Decoder**: The same LSTM-based decoder as the CNN-LSTM model
-
-## Training Process
-
-![Accuracy Curves](./outputs/img2latex_v2/plots/accuracy_curves.png)
-
-The training process implements several key strategies:
-
-### Optimization Setup
-- **Optimizer**: Adam with configurable learning rate and weight decay
-- **Learning Rate Scheduling**: ReduceLROnPlateau with patience 3, factor 0.5
-- **Loss Function**: Cross-entropy with label smoothing (0.1)
-
-### Training Techniques
-- **Teacher Forcing**: Scheduled sampling approach transitioning from ground truth to predictions
-- **Gradient Clipping**: Norm-based clipping (value: 5.0) to prevent exploding gradients
-- **Early Stopping**: Training stops if validation metrics don't improve for 5 epochs
-- **Checkpointing**: Regular saving of model checkpoints for resuming training
-
-### Hardware Acceleration
-- **Device Support**: CUDA for NVIDIA GPUs, MPS for Apple Silicon, CPU fallback
-- **Mixed Precision**: FP16 computation where supported (30-40% faster training)
-
-## Results
-
-![BLEU Score](./outputs/img2latex_v2/plots/bleu_score.png)
-
-Our training process spanned 25 epochs, with the following progression in validation metrics for our best-performing model:
-
-| Epoch | Loss   | Accuracy | BLEU   | Levenshtein |
-|-------|--------|----------|--------|-------------|
-| 1     | 2.2778 | 0.4986   | 0.0827 | 0.2311      |
-| 5     | 1.8408 | 0.5760   | 0.1241 | 0.2609      |
-| 10    | 1.6909 | 0.6022   | 0.1377 | 0.2716      |
-| 15    | 1.6338 | 0.6116   | 0.1464 | 0.2781      |
-| 20    | 1.6030 | 0.6180   | 0.1502 | 0.2799      |
-| 25    | 1.5663 | 0.6256   | 0.1539 | 0.2829      |
-
-The comparison between CNN-LSTM and ResNet-LSTM models showed:
-- CNN-LSTM achieved 62.56% validation accuracy and a BLEU score of 0.1539
-- ResNet50-LSTM achieved 59.42% accuracy and 0.1487 BLEU score in fewer epochs
-- The CNN-LSTM architecture provided superior results with lower computational requirements
-
-## Example Visualizations
-
-![Formula Image Grid](./outputs/image_analysis/images/formula_image_grid.png)
-
-## Installation
-
-Clone the repository and install the package:
-
-```bash
-git clone https://github.com/Jeremy-Cleland/hmer-img2latex.git
-cd hmer-im2latex
-pip install -e .
+```
+Image 64x512 grayscale
+  -> Conv-BN-ReLU-MaxPool x3  (downsample /8)
+  -> 1x1 projection to d_model=256
+  -> 2D sinusoidal positional encoding
+  -> feature grid 8x64 = 512 memory tokens + padding mask
+  -> Transformer decoder (4 layers, 8 heads, pre-norm, tied embeddings)
+  -> token logits
 ```
 
-## Data Preparation
+The encoder keeps the spatial layout of the formula. White right-padding is masked out of cross-attention so the decoder cannot attend to empty canvas.
 
-The system uses the IM2LaTeX-100k dataset with the following structure:
+Optional `resnet_transformer` config uses ResNet-18 with the classification head and avg-pool removed and `layer4` stride set to 1 (grid /16).
+
+## Why the old score was stuck at 0.15 BLEU
+
+1. **No spatial features.** Both encoders reduced the image to one vector (`Flatten + Linear` on the CNN, `avgpool` kept on ResNet). Attention over a sequence of length 1 is always 1.0.
+2. **Teacher-forced metrics.** Validation ran `argmax` on teacher-forced logits, not generated text.
+3. **Broken inference.** Beam search was hard-disabled and predict resized to 64x800 while training used 128x800.
+
+## Metrics
+
+Reported scores are computed on generated token sequences:
+
+| Metric | Meaning |
+|--------|---------|
+| BLEU-4 | Smoothed corpus BLEU (`nltk` method3), not a per-sentence geometric mean that zeros out short formulas |
+| Exact match | Generated tokens equal the reference after stripping START/END/PAD |
+| Normalized edit distance | Mean Levenshtein / max(len); lower is better |
+| Token accuracy | Teacher-forced, logged only as a training diagnostic |
+
+Best checkpoints are selected on validation BLEU, not validation loss.
+
+Legacy teacher-forced numbers (for comparison only): accuracy 62.56%, BLEU 0.1539, Levenshtein similarity 0.2829. No old checkpoint was in the repo, so those runs could not be re-scored honestly. See `outputs/baseline_honest.json`.
+
+Latest Transformer results are written to `outputs/img2latex_transformer_v1/metrics/metrics.json` during training.
+
+## Training setup
+
+- **Optimizer:** AdamW, lr 3e-4, weight decay 1e-4
+- **Schedule:** linear warmup (5% of steps) then cosine decay
+- **Loss:** cross-entropy with label smoothing 0.1, pad ignored
+- **Grad clip:** 1.0
+- **Precision:** fp32 on Apple Silicon MPS (no GradScaler)
+- **Data:** 64x512 scale-to-fit (never cropped), sequence truncation at 141, tokenizer fit on the **train split only** with `min_freq=5`
+- **Loading:** uint8 memmap cache, length-bucketed batches (DataLoader workers stay at 0 on macOS because libomp + multiprocessing segfaults)
+- **Decode:** batched greedy during validation; beam search (size 5, length penalty 0.7) for test/predict
+
+## Dataset
+
+IM2LaTeX-100k processed images (hashed PNG names) plus the filtered splits:
 
 ```
 data/
-├── img/                  # Directory with formula images
-│   ├── *.png             # Images of math formulas
-├── im2latex_formulas.norm.lst   # Formulas in normalized format
-├── im2latex_train_filter.lst    # Training split
-├── im2latex_validate_filter.lst # Validation split
-└── im2latex_test_filter.lst     # Test split
+├── img/                             # processed formula PNGs
+├── cache/                           # 64x512 uint8 memmap (built once)
+├── im2latex_formulas.norm.lst
+├── im2latex_train_filter.lst
+├── im2latex_validate_filter.lst
+└── im2latex_test_filter.lst
 ```
 
-Each line in the split files has the format: `<image_file> <formula_index>`, where `<formula_index>` is the line number in the formulas file.
+## Installation (Apple Silicon / MPS)
+
+Miniforge is required. From the repo root:
+
+```bash
+# If conda is not installed:
+curl -fsSL -o /tmp/Miniforge3.sh https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh
+bash /tmp/Miniforge3.sh -b -p "$HOME/miniforge3"
+source "$HOME/miniforge3/etc/profile.d/conda.sh"
+
+conda env create -f environment.yml
+conda activate hmer-im2latex
+conda env config vars set KMP_DUPLICATE_LIB_OK=TRUE PYTORCH_ENABLE_MPS_FALLBACK=1
+conda activate hmer-im2latex   # reload vars
+pip install -e .
+```
+
+The env installs the official macOS ARM PyTorch wheels, which include MPS. Confirm with:
+
+```bash
+python -c "import torch; print(torch.__version__, torch.backends.mps.is_available())"
+```
+
+## Data preparation
+
+```bash
+make download-data    # ~588MB processed images
+make build-cache      # ~3GB uint8 memmap at 64x512
+```
 
 ## Commands
 
-### Training and Inference
-
 ```bash
-# Train a new model
-make train EXPERIMENT=experiment_name CONFIG=path/to/config.yaml
+# Train (writes outputs/<name>_vN/)
+make train EXPERIMENT=img2latex_transformer CONFIG=img2latex/configs/config.yaml
 
-# Resume training from a checkpoint
-make train-resume MODEL=path/to/checkpoint.pt EXPERIMENT=experiment_name
+# Resume
+make train-resume MODEL=outputs/img2latex_transformer_v1/checkpoints/best_checkpoint.pt EXPERIMENT=img2latex_transformer
 
-# Run prediction on an image
-make predict MODEL=path/to/checkpoint.pt IMAGE=path/to/image.png
+# Predict with beam search
+python -m img2latex.cli predict path/to/best_checkpoint.pt path/to/image.png --beam-size 5
 
-# Evaluate model on test set
-make evaluate MODEL=path/to/checkpoint.pt
+# Evaluate on the test split
+python -m img2latex.cli evaluate path/to/best_checkpoint.pt data --split test --beam-size 5 --device mps
 ```
 
-### CLI Commands
-
-You can also use the CLI directly for more options:
-
 ```bash
-# Training with custom parameters
-python -m img2latex.cli train --config-path path/to/config.yaml --experiment-name experiment_name --device cuda
-
-# Prediction with beam search
-python -m img2latex.cli predict checkpoint.pt image.png --beam-size 5 --max-length 150
-
-# Evaluation with custom batch size
-python -m img2latex.cli evaluate checkpoint.pt data_dir --split test --batch-size 64 --beam-size 3
-```
-
-### Metrics and Analysis
-
-```bash
-# Visualize metrics for an experiment
-make metrics-visualize EXPERIMENT=experiment_name
-
-# Show latest metrics in a concise format
-make metrics-latest EXPERIMENT=experiment_name
-
-# Compare metrics across different experiments
-make metrics-compare
-
-# Export metrics to CSV or JSON
-make metrics-export EXPERIMENT=experiment_name
-
-# Run specific analysis tools
-make analyze-images    # Analyze dataset images
-make analyze-curves    # Plot learning curves
-make analyze-tokens    # Analyze token distributions
-make analyze-errors    # Analyze prediction errors
-make analyze-preprocess # Visualize preprocessing steps
-
-# Run all analysis tools
-make analyze-all
-```
-
-### Development and Maintenance
-
-```bash
-# Initialize required directories
-make dirs
-
-# Lint code
 make lint
-
-# Format code
 make format
-
-# Run type checking
-make typecheck
-
-# Run all code quality checks
-make check-all
-
-# Clean Python artifacts
-make clean-pyc
-
-# Clean all outputs
-make clean-outputs
-
-# Clean only metrics files
-make clean-metrics
-
-# Clean everything
-make clean-all
-
-# Show help message with all commands
-make help
+python -m pytest tests -q
 ```
 
-For detailed information about the metrics system, see [README_METRICS.md](docs/README_METRICS.md).
+Set `KMP_DUPLICATE_LIB_OK=TRUE` and `OMP_NUM_THREADS=1` if pytest hits the duplicate OpenMP runtime on macOS.
 
 ## License
 
